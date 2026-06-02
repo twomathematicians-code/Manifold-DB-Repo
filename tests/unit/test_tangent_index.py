@@ -7,7 +7,6 @@ import pytest
 
 from manifold_db.tangent_index import TangentBundle, TangentSpace, TangentSpaceIndex
 
-
 # ================================================================
 # TangentSpace
 # ================================================================

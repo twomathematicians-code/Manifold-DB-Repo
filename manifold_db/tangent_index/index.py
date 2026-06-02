@@ -23,13 +23,12 @@ from __future__ import annotations
 import logging
 import time
 import uuid
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any
 
 import numpy as np
 from sklearn.neighbors import BallTree
 
 from .tangent_bundle import TangentBundle
-from .tangent_space import TangentSpace
 
 logger = logging.getLogger(__name__)
 
@@ -51,7 +50,7 @@ class TangentSpaceIndex:
 
     def __init__(
         self,
-        intrinsic_dim: Optional[int] = None,
+        intrinsic_dim: int | None = None,
         metric_eps: float = 0.1,
         leaf_size: int = 40,
     ) -> None:
@@ -75,10 +74,10 @@ class TangentSpaceIndex:
         #     "balltree": BallTree or None,
         #     "needs_rebuild": bool,
         # }
-        self._local_indices: Dict[str, Dict[str, Any]] = {}
+        self._local_indices: dict[str, dict[str, Any]] = {}
 
         # Global reverse lookup: point_id → (anchor_id, local_index)
-        self._point_map: Dict[Any, Tuple[str, int]] = {}
+        self._point_map: dict[Any, tuple[str, int]] = {}
 
         # Cached stats
         self._size: int = 0
@@ -107,7 +106,7 @@ class TangentSpaceIndex:
                 store["balltree"] = None
             store["needs_rebuild"] = False
 
-    def _get_or_create_local(self, anchor_id: str, intrinsic_dim: int) -> Dict:
+    def _get_or_create_local(self, anchor_id: str, intrinsic_dim: int) -> dict:
         """Get or create the per-anchor store."""
         if anchor_id not in self._local_indices:
             self._local_indices[anchor_id] = {
@@ -124,10 +123,10 @@ class TangentSpaceIndex:
 
     def build_from_data(
         self,
-        point_ids: List[Any],
+        point_ids: list[Any],
         data_points: np.ndarray,
         n_anchors: int = 50,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Construct the full index from a set of data points.
 
@@ -253,9 +252,7 @@ class TangentSpaceIndex:
 
         logger.debug("Inserted point %s into anchor %s", point_id, aid)
 
-    def batch_insert(
-        self, point_ids: List[Any], data_points: np.ndarray
-    ) -> None:
+    def batch_insert(self, point_ids: list[Any], data_points: np.ndarray) -> None:
         """
         Insert multiple points at once.  More efficient than individual
         inserts because BallTree rebuilds are deferred.
@@ -284,9 +281,9 @@ class TangentSpaceIndex:
         self,
         query_point: np.ndarray,
         k: int = 10,
-        n_candidates: Optional[int] = None,
+        n_candidates: int | None = None,
         search_k_anchors: int = 1,
-    ) -> List[Tuple[Any, float]]:
+    ) -> list[tuple[Any, float]]:
         """
         Search for the *k* nearest neighbours of *query_point*.
 
@@ -320,10 +317,9 @@ class TangentSpaceIndex:
 
         query = np.asarray(query_point, dtype=np.float64)
         n_candidates = n_candidates or max(k * 2, 20)
-        effective_k = min(n_candidates, k)
 
         # Collect candidates from multiple nearby anchors
-        candidate_pids: Dict[Any, float] = {}  # pid → best distance
+        candidate_pids: dict[Any, float] = {}  # pid → best distance
 
         anchors = self.bundle.nearest_anchor(query, k=search_k_anchors)
 
@@ -355,7 +351,7 @@ class TangentSpaceIndex:
                 pid = store["point_ids"][int(lidx)]
                 # Distance = tangent-space distance (already Euclidean in TS)
                 # Add penalty proportional to how far the anchor is from query
-                penalty = 0.5 * dist_to_anchor ** 2
+                penalty = 0.5 * dist_to_anchor**2
                 total_dist = float(d) + penalty
                 if pid not in candidate_pids or total_dist < candidate_pids[pid]:
                     candidate_pids[pid] = total_dist
@@ -448,11 +444,10 @@ class TangentSpaceIndex:
         return self._size
 
     @property
-    def stats(self) -> Dict[str, Any]:
+    def stats(self) -> dict[str, Any]:
         """Summary statistics for the index."""
         per_anchor_counts = {
-            aid: len(store["point_ids"])
-            for aid, store in self._local_indices.items()
+            aid: len(store["point_ids"]) for aid, store in self._local_indices.items()
         }
         max_per = max(per_anchor_counts.values()) if per_anchor_counts else 0
         min_per = min(per_anchor_counts.values()) if per_anchor_counts else 0
@@ -475,7 +470,7 @@ class TangentSpaceIndex:
     # Serialisation
     # ------------------------------------------------------------------
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Serialise the index to a plain dict."""
         local_serializable = {}
         for aid, store in self._local_indices.items():
@@ -497,7 +492,7 @@ class TangentSpaceIndex:
         }
 
     @classmethod
-    def from_dict(cls, d: Dict[str, Any]) -> "TangentSpaceIndex":
+    def from_dict(cls, d: dict[str, Any]) -> TangentSpaceIndex:
         """Deserialise from a dict produced by ``to_dict``."""
         idx = cls(
             intrinsic_dim=d.get("intrinsic_dim"),
@@ -514,9 +509,6 @@ class TangentSpaceIndex:
         # Restore local indices
         for aid, store in d["local_indices"].items():
             coords = np.asarray(store["tangent_coords"], dtype=np.float64)
-            dim = coords.shape[1] if coords.ndim == 2 and coords.shape[0] > 0 else (
-                idx.intrinsic_dim or 0
-            )
             idx._local_indices[aid] = {
                 "point_ids": store["point_ids"],
                 "tangent_coords": coords,

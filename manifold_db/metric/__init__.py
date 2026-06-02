@@ -6,13 +6,13 @@ for the Manifold Database project.
 """
 
 from manifold_db.metric.metric_tensor import (
-    MetricTensor,
-    EuclideanMetric,
     DiagonalMetric,
-    LearnedMetric,
+    EuclideanMetric,
     FisherRaoMetric,
-    WassersteinMetric,
+    LearnedMetric,
+    MetricTensor,
     MetricTensorStore,
+    WassersteinMetric,
 )
 
 __all__ = [

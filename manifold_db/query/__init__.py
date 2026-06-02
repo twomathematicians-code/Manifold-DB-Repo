@@ -15,6 +15,7 @@ Public API:
 
 from manifold_db.query.dsl import (
     CostTier,
+    CrossModalQuery,
     GeodesicWhereClause,
     ManifoldQuery,
     MetricType,
@@ -23,7 +24,6 @@ from manifold_db.query.dsl import (
     QueryType,
     SelectQuery,
     TangentQuery,
-    CrossModalQuery,
     TransportQuery,
 )
 from manifold_db.query.engine import (

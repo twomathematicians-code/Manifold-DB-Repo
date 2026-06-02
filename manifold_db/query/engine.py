@@ -9,17 +9,13 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from abc import ABC, abstractmethod
+from collections.abc import Iterator, Sequence
 from dataclasses import dataclass, field
-from typing import (
-    Any, Dict, Iterator, List, Optional, Sequence, Tuple, Union,
-)
+from typing import Any
 
 import numpy as np
 
-from manifold_db.query.dsl import (
-    CostTier, ManifoldQuery, MetricType, QueryType,
-)
+from manifold_db.query.dsl import ManifoldQuery, QueryType
 
 logger = logging.getLogger(__name__)
 
@@ -29,16 +25,19 @@ logger = logging.getLogger(__name__)
 # when atlas_manager, metric_store, etc. are available).
 # ──────────────────────────────────────────────────────────────
 
+
 class _Stub:
     """Placeholder for external collaborators."""
-    async def lookup_chart(self, point: np.ndarray) -> Optional[Dict[str, Any]]:
+
+    async def lookup_chart(self, point: np.ndarray) -> dict[str, Any] | None:
         return {"chart_id": "default_chart", "dimension": point.size}
 
     async def chart_size(self, chart_id: str) -> int:
         return 1000
 
-    async def tangent_search(self, chart_id: str, query: np.ndarray,
-                            k: int) -> Tuple[np.ndarray, np.ndarray]:
+    async def tangent_search(
+        self, chart_id: str, query: np.ndarray, k: int
+    ) -> tuple[np.ndarray, np.ndarray]:
         """Returns (ids, distances) arrays of shape (k,)."""
         ids = np.arange(k, dtype=np.int64)
         dists = np.linspace(0.01, 0.1, k)
@@ -50,17 +49,19 @@ class _Stub:
     async def geodesic_distance(self, p: np.ndarray, q: np.ndarray) -> float:
         return float(np.linalg.norm(p - q))
 
-    async def parallel_transport(self, vector: np.ndarray,
-                                source: str, target: str) -> np.ndarray:
+    async def parallel_transport(
+        self, vector: np.ndarray, source: str, target: str
+    ) -> np.ndarray:
         return vector.copy()
 
-    async def list_charts(self) -> List[Dict[str, Any]]:
+    async def list_charts(self) -> list[dict[str, Any]]:
         return [{"chart_id": "default_chart", "size": 1000}]
 
 
 # ──────────────────────────────────────────────────────────────
 # Query Result
 # ──────────────────────────────────────────────────────────────
+
 
 @dataclass
 class QueryResult:
@@ -70,19 +71,22 @@ class QueryResult:
     Supports iteration (streaming large results), and conversion
     to list / dict / DataFrame representations.
     """
+
     point_ids: np.ndarray = field(default_factory=lambda: np.array([], dtype=np.int64))
-    distances: np.ndarray = field(default_factory=lambda: np.array([], dtype=np.float64))
-    metadata: Optional[List[Dict[str, Any]]] = None
+    distances: np.ndarray = field(
+        default_factory=lambda: np.array([], dtype=np.float64)
+    )
+    metadata: list[dict[str, Any]] | None = None
     execution_time: float = 0.0
-    chart_id: Optional[str] = None
-    query_type: Optional[str] = None
+    chart_id: str | None = None
+    query_type: str | None = None
 
     def __len__(self) -> int:
         return len(self.point_ids)
 
-    def __iter__(self) -> Iterator[Dict[str, Any]]:
+    def __iter__(self) -> Iterator[dict[str, Any]]:
         for i in range(len(self)):
-            row: Dict[str, Any] = {
+            row: dict[str, Any] = {
                 "point_id": int(self.point_ids[i]),
                 "distance": float(self.distances[i]),
             }
@@ -90,8 +94,8 @@ class QueryResult:
                 row["metadata"] = self.metadata[i]
             yield row
 
-    def __getitem__(self, index: int) -> Dict[str, Any]:
-        row: Dict[str, Any] = {
+    def __getitem__(self, index: int) -> dict[str, Any]:
+        row: dict[str, Any] = {
             "point_id": int(self.point_ids[index]),
             "distance": float(self.distances[index]),
         }
@@ -101,10 +105,10 @@ class QueryResult:
 
     # ── conversions ──────────────────────────────────────────
 
-    def to_list(self) -> List[Dict[str, Any]]:
+    def to_list(self) -> list[dict[str, Any]]:
         return list(self)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "point_ids": self.point_ids.tolist(),
             "distances": self.distances.tolist(),
@@ -118,6 +122,7 @@ class QueryResult:
     def to_dataframe(self):
         """Return a pandas DataFrame (imported lazily to avoid hard dep)."""
         import pandas as pd  # type: ignore
+
         records = self.to_list()
         if not records:
             return pd.DataFrame(columns=["point_id", "distance"])
@@ -128,13 +133,15 @@ class QueryResult:
 # Execution Plan
 # ──────────────────────────────────────────────────────────────
 
+
 @dataclass
 class ExecutionStep:
     """Single step in a query execution plan."""
+
     name: str
     description: str
     estimated_cost_ms: float = 0.0
-    depends_on: List[int] = field(default_factory=list)
+    depends_on: list[int] = field(default_factory=list)
 
 
 @dataclass
@@ -143,25 +150,32 @@ class ExecutionPlan:
     Ordered list of execution steps with cost estimates.
     Can be visualised as an ASCII diagram.
     """
-    steps: List[ExecutionStep] = field(default_factory=list)
+
+    steps: list[ExecutionStep] = field(default_factory=list)
     total_estimated_ms: float = 0.0
 
-    def add_step(self, name: str, description: str,
-                 estimated_cost_ms: float = 0.0,
-                 depends_on: Optional[List[int]] = None) -> int:
+    def add_step(
+        self,
+        name: str,
+        description: str,
+        estimated_cost_ms: float = 0.0,
+        depends_on: list[int] | None = None,
+    ) -> int:
         idx = len(self.steps)
-        self.steps.append(ExecutionStep(
-            name=name,
-            description=description,
-            estimated_cost_ms=estimated_cost_ms,
-            depends_on=depends_on or [],
-        ))
+        self.steps.append(
+            ExecutionStep(
+                name=name,
+                description=description,
+                estimated_cost_ms=estimated_cost_ms,
+                depends_on=depends_on or [],
+            )
+        )
         self.total_estimated_ms += estimated_cost_ms
         return idx
 
     def visualize(self, width: int = 72) -> str:
         """Return an ASCII execution plan."""
-        lines: List[str] = []
+        lines: list[str] = []
         lines.append("=" * width)
         lines.append("  QUERY EXECUTION PLAN")
         lines.append("=" * width)
@@ -179,7 +193,7 @@ class ExecutionPlan:
             lines.append(f"  │      {step.description}")
             lines.append(f"  │      est. {cost_str}{dep_str}")
             if i < len(self.steps) - 1:
-                lines.append(f"  │")
+                lines.append("  │")
 
         lines.append("=" * width)
         return "\n".join(lines)
@@ -188,6 +202,7 @@ class ExecutionPlan:
 # ──────────────────────────────────────────────────────────────
 # Query Engine
 # ──────────────────────────────────────────────────────────────
+
 
 class QueryEngine:
     """
@@ -203,18 +218,20 @@ class QueryEngine:
 
     def __init__(
         self,
-        atlas_manager: Optional[Any] = None,
-        metric_store: Optional[Any] = None,
-        tangent_index: Optional[Any] = None,
-        geodesic_solver: Optional[Any] = None,
-        connection: Optional[Any] = None,
+        atlas_manager: Any | None = None,
+        metric_store: Any | None = None,
+        tangent_index: Any | None = None,
+        geodesic_solver: Any | None = None,
+        connection: Any | None = None,
     ) -> None:
         self.atlas_manager = atlas_manager or _Stub()
         self.metric_store = metric_store or _Stub()
         self.tangent_index = tangent_index or _Stub()
         self.geodesic_solver = geodesic_solver or _Stub()
         self.connection = connection
-        logger.info("QueryEngine initialised (stubs=%s)", isinstance(self.atlas_manager, _Stub))
+        logger.info(
+            "QueryEngine initialised (stubs=%s)", isinstance(self.atlas_manager, _Stub)
+        )
 
     # ── public interface ──────────────────────────────────────
 
@@ -244,11 +261,15 @@ class QueryEngine:
         result.query_type = query.query_type.value
         logger.info(
             "Query executed: type=%s results=%d time=%.4fs",
-            query.query_type.value, len(result), elapsed,
+            query.query_type.value,
+            len(result),
+            elapsed,
         )
         return result
 
-    async def batch_execute(self, queries: Sequence[ManifoldQuery]) -> List[QueryResult]:
+    async def batch_execute(
+        self, queries: Sequence[ManifoldQuery]
+    ) -> list[QueryResult]:
         """Execute multiple queries concurrently using asyncio.gather."""
         logger.info("Batch executing %d queries", len(queries))
         tasks = [self.execute(q) for q in queries]
@@ -259,68 +280,112 @@ class QueryEngine:
         plan = ExecutionPlan()
 
         if query.query_type == QueryType.SELECT:
-            plan.add_step("locate_chart",
-                          "Locate chart containing the query point via atlas lookup",
-                          estimated_cost_ms=0.5)
-            plan.add_step("tangent_project",
-                          "Project query point into chart's tangent space",
-                          estimated_cost_ms=0.2, depends_on=[0])
-            plan.add_step("tangent_search",
-                          "Search candidates in tangent-space index",
-                          estimated_cost_ms=1.0, depends_on=[1])
-            plan.add_step("geodesic_refine",
-                          "Refine top-k with true geodesic distances",
-                          estimated_cost_ms=5.0, depends_on=[2])
-            plan.add_step("assemble",
-                          "Assemble result set with metadata",
-                          estimated_cost_ms=0.1, depends_on=[3])
+            plan.add_step(
+                "locate_chart",
+                "Locate chart containing the query point via atlas lookup",
+                estimated_cost_ms=0.5,
+            )
+            plan.add_step(
+                "tangent_project",
+                "Project query point into chart's tangent space",
+                estimated_cost_ms=0.2,
+                depends_on=[0],
+            )
+            plan.add_step(
+                "tangent_search",
+                "Search candidates in tangent-space index",
+                estimated_cost_ms=1.0,
+                depends_on=[1],
+            )
+            plan.add_step(
+                "geodesic_refine",
+                "Refine top-k with true geodesic distances",
+                estimated_cost_ms=5.0,
+                depends_on=[2],
+            )
+            plan.add_step(
+                "assemble",
+                "Assemble result set with metadata",
+                estimated_cost_ms=0.1,
+                depends_on=[3],
+            )
 
         elif query.query_type == QueryType.TANGENT:
-            plan.add_step("tangent_search",
-                          "Search directly in chart's tangent space",
-                          estimated_cost_ms=1.0)
-            plan.add_step("assemble",
-                          "Assemble result set",
-                          estimated_cost_ms=0.1, depends_on=[0])
+            plan.add_step(
+                "tangent_search",
+                "Search directly in chart's tangent space",
+                estimated_cost_ms=1.0,
+            )
+            plan.add_step(
+                "assemble", "Assemble result set", estimated_cost_ms=0.1, depends_on=[0]
+            )
 
         elif query.query_type == QueryType.CROSS_MODAL:
-            plan.add_step("locate_source",
-                          "Locate source chart for modality",
-                          estimated_cost_ms=0.5)
-            plan.add_step("transport_vector",
-                          "Parallel-transport query vector to target chart",
-                          estimated_cost_ms=2.0, depends_on=[0])
-            plan.add_step("target_search",
-                          "Search in target chart's tangent space",
-                          estimated_cost_ms=1.0, depends_on=[1])
-            plan.add_step("assemble",
-                          "Assemble cross-modal results",
-                          estimated_cost_ms=0.1, depends_on=[2])
+            plan.add_step(
+                "locate_source",
+                "Locate source chart for modality",
+                estimated_cost_ms=0.5,
+            )
+            plan.add_step(
+                "transport_vector",
+                "Parallel-transport query vector to target chart",
+                estimated_cost_ms=2.0,
+                depends_on=[0],
+            )
+            plan.add_step(
+                "target_search",
+                "Search in target chart's tangent space",
+                estimated_cost_ms=1.0,
+                depends_on=[1],
+            )
+            plan.add_step(
+                "assemble",
+                "Assemble cross-modal results",
+                estimated_cost_ms=0.1,
+                depends_on=[2],
+            )
 
         elif query.query_type == QueryType.TRANSPORT:
-            plan.add_step("locate_charts",
-                          "Resolve source and target chart IDs",
-                          estimated_cost_ms=0.2)
-            plan.add_step("compute_transport",
-                          "Compute parallel transport along overlap",
-                          estimated_cost_ms=3.0, depends_on=[0])
-            plan.add_step("assemble",
-                          "Return transported vector",
-                          estimated_cost_ms=0.05, depends_on=[1])
+            plan.add_step(
+                "locate_charts",
+                "Resolve source and target chart IDs",
+                estimated_cost_ms=0.2,
+            )
+            plan.add_step(
+                "compute_transport",
+                "Compute parallel transport along overlap",
+                estimated_cost_ms=3.0,
+                depends_on=[0],
+            )
+            plan.add_step(
+                "assemble",
+                "Return transported vector",
+                estimated_cost_ms=0.05,
+                depends_on=[1],
+            )
 
         elif query.query_type == QueryType.RANGE:
-            plan.add_step("locate_chart",
-                          "Locate chart for query point",
-                          estimated_cost_ms=0.5)
-            plan.add_step("candidate_scan",
-                          "Scan candidates within epsilon ball in tangent space",
-                          estimated_cost_ms=2.0, depends_on=[0])
-            plan.add_step("geodesic_refine",
-                          "Filter by true geodesic distance",
-                          estimated_cost_ms=5.0, depends_on=[1])
-            plan.add_step("assemble",
-                          "Assemble range query results",
-                          estimated_cost_ms=0.1, depends_on=[2])
+            plan.add_step(
+                "locate_chart", "Locate chart for query point", estimated_cost_ms=0.5
+            )
+            plan.add_step(
+                "candidate_scan",
+                "Scan candidates within epsilon ball in tangent space",
+                estimated_cost_ms=2.0,
+                depends_on=[0],
+            )
+            plan.add_step(
+                "geodesic_refine",
+                "Filter by true geodesic distance",
+                estimated_cost_ms=5.0,
+                depends_on=[1],
+            )
+            plan.add_step(
+                "assemble",
+                "Assemble range query results",
+                estimated_cost_ms=0.1,
+                depends_on=[2],
+            )
 
         return plan
 

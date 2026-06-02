@@ -18,8 +18,7 @@ The overall pipeline:
 from __future__ import annotations
 
 import logging
-import uuid
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 from scipy import sparse
@@ -43,6 +42,7 @@ def _import_networkx():
     try:
         import networkx as nx
         from networkx.algorithms.community import louvain_communities
+
         return nx, louvain_communities
     except ImportError:
         logger.error(
@@ -55,6 +55,7 @@ def _import_networkx():
 def _import_torch():
     try:
         import torch
+
         return torch
     except ImportError:
         logger.error(
@@ -90,7 +91,7 @@ class AtlasBuilder:
         pca_variance_threshold: float = 0.95,
         min_chart_size: int = 50,
         overlap_margin: float = 0.05,
-        random_state: Optional[int] = None,
+        random_state: int | None = None,
     ) -> None:
         self.k_neighbors = k_neighbors
         self.pca_variance_threshold = pca_variance_threshold
@@ -100,7 +101,9 @@ class AtlasBuilder:
         self._rng = np.random.default_rng(random_state)
         logger.info(
             "AtlasBuilder created: k=%d, pca_thresh=%.2f, min_size=%d",
-            k_neighbors, pca_variance_threshold, min_chart_size,
+            k_neighbors,
+            pca_variance_threshold,
+            min_chart_size,
         )
 
     # ------------------------------------------------------------------
@@ -139,7 +142,7 @@ class AtlasBuilder:
         nn.fit(data)
         distances, indices = nn.kneighbors(data)
 
-        dim_estimates: List[int] = []
+        dim_estimates: list[int] = []
         sample_idx = self._rng.choice(N, size=n_samples, replace=False)
         for idx in sample_idx:
             neighbours = data[indices[idx, 1:]]  # exclude self
@@ -161,7 +164,8 @@ class AtlasBuilder:
         median_dim = max(1, min(median_dim, D))
         logger.info(
             "Intrinsic dimension estimate: %d (from %d local estimates).",
-            median_dim, len(dim_estimates),
+            median_dim,
+            len(dim_estimates),
         )
         return median_dim
 
@@ -171,7 +175,7 @@ class AtlasBuilder:
     def compute_knn_graph(
         self,
         data: np.ndarray,
-        k: Optional[int] = None,
+        k: int | None = None,
     ) -> sparse.csr_matrix:
         """Construct a symmetric KNN adjacency graph.
 
@@ -196,9 +200,9 @@ class AtlasBuilder:
         distances, indices = nn.kneighbors(data)
 
         # Build symmetric adjacency
-        rows: List[int] = []
-        cols: List[int] = []
-        weights: List[float] = []
+        rows: list[int] = []
+        cols: list[int] = []
+        weights: list[float] = []
         for i in range(N):
             for j_idx in range(1, k + 1):  # skip self
                 j = indices[i, j_idx]
@@ -211,9 +215,7 @@ class AtlasBuilder:
                 cols.append(i)
                 weights.append(weight)
 
-        adj = sparse.csr_matrix(
-            (weights, (rows, cols)), shape=(N, N)
-        )
+        adj = sparse.csr_matrix((weights, (rows, cols)), shape=(N, N))
         logger.info("KNN graph built: %d nodes, %d edges.", N, adj.nnz // 2)
         return adj
 
@@ -223,9 +225,9 @@ class AtlasBuilder:
     def detect_chart_boundaries(
         self,
         knn_graph: sparse.csr_matrix,
-        min_chart_size: Optional[int] = None,
+        min_chart_size: int | None = None,
         resolution: float = 1.0,
-    ) -> List[np.ndarray]:
+    ) -> list[np.ndarray]:
         """Partition the KNN graph into communities (chart assignments).
 
         Uses the Louvain community detection algorithm.
@@ -249,25 +251,31 @@ class AtlasBuilder:
         """
         nx, louvain_communities = _import_networkx()
         G = nx.from_scipy_sparse_array(knn_graph)
-        communities = louvain_communities(G, resolution=resolution, seed=self.random_state)
+        communities = louvain_communities(
+            G, resolution=resolution, seed=self.random_state
+        )
         min_size = min_chart_size or self.min_chart_size
 
         # Convert to index arrays
-        clusters: List[np.ndarray] = [np.array(sorted(c), dtype=int) for c in communities]
+        clusters: list[np.ndarray] = [
+            np.array(sorted(c), dtype=int) for c in communities
+        ]
         logger.info(
             "Louvain found %d communities (resolution=%.2f).",
-            len(clusters), resolution,
+            len(clusters),
+            resolution,
         )
 
         # Merge small clusters into nearest large cluster
-        large: List[np.ndarray] = [c for c in clusters if len(c) >= min_size]
-        small: List[np.ndarray] = [c for c in clusters if len(c) < min_size]
+        large: list[np.ndarray] = [c for c in clusters if len(c) >= min_size]
+        small: list[np.ndarray] = [c for c in clusters if len(c) < min_size]
 
         if small:
-            logger.info("Merging %d small clusters (< %d points).", len(small), min_size)
+            logger.info(
+                "Merging %d small clusters (< %d points).", len(small), min_size
+            )
             # Compute centroids of large clusters
             if large:
-                all_points_flat = np.concatenate(large)
                 for s in small:
                     # Assign each point in small cluster to nearest large cluster
                     # We use the mean index as representative (approximate)
@@ -280,7 +288,9 @@ class AtlasBuilder:
                         if dist < best_dist:
                             best_dist = dist
                             best_large_idx = li
-                    large[best_large_idx] = np.sort(np.concatenate([large[best_large_idx], s]))
+                    large[best_large_idx] = np.sort(
+                        np.concatenate([large[best_large_idx], s])
+                    )
             else:
                 # No large clusters; just keep all as-is
                 large = clusters
@@ -296,7 +306,7 @@ class AtlasBuilder:
         chart_a: Chart,
         chart_b: Chart,
         knn_graph: sparse.csr_matrix,
-    ) -> Optional[Tuple[np.ndarray, np.ndarray, np.ndarray]]:
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray] | None:
         """Find data points that lie in the overlap of two charts.
 
         Uses the KNN graph to identify boundary points: a point is
@@ -337,7 +347,9 @@ class AtlasBuilder:
         overlap_idx = np.array(sorted(overlap_set), dtype=int)
         logger.debug(
             "Overlap between '%s' and '%s': %d points.",
-            chart_a.name, chart_b.name, len(overlap_idx),
+            chart_a.name,
+            chart_b.name,
+            len(overlap_idx),
         )
         return overlap_idx
 
@@ -345,7 +357,7 @@ class AtlasBuilder:
         self,
         chart_a: Chart,
         chart_b: Chart,
-    ) -> Optional[Tuple[np.ndarray, np.ndarray]]:
+    ) -> tuple[np.ndarray, np.ndarray] | None:
         """Compute axis-aligned overlap bounds in chart_a coordinates.
 
         Uses the overlap indices stored in chart metadata to identify shared
@@ -365,19 +377,22 @@ class AtlasBuilder:
             if chart_a._data_snapshot is None:
                 return None
             a_coords = chart_a._data_snapshot[overlap_idx]
-            b_coords = chart_b._data_snapshot[overlap_idx] if chart_b._data_snapshot is not None else None
         except (IndexError, ValueError):
             return None
 
-        mn = a_coords.min(axis=0) - self.overlap_margin * (a_coords.max(axis=0) - a_coords.min(axis=0) + 1e-10)
-        mx = a_coords.max(axis=0) + self.overlap_margin * (a_coords.max(axis=0) - a_coords.min(axis=0) + 1e-10)
+        mn = a_coords.min(axis=0) - self.overlap_margin * (
+            a_coords.max(axis=0) - a_coords.min(axis=0) + 1e-10
+        )
+        mx = a_coords.max(axis=0) + self.overlap_margin * (
+            a_coords.max(axis=0) - a_coords.min(axis=0) + 1e-10
+        )
         return (mn, mx)
 
     def _find_overlap_indices(
         self,
         chart_a: Chart,
         chart_b: Chart,
-    ) -> Optional[np.ndarray]:
+    ) -> np.ndarray | None:
         """Get indices of points belonging to both charts."""
         idx_a = set(chart_a.metadata.get("point_indices", []))
         idx_b = set(chart_b.metadata.get("point_indices", []))
@@ -420,7 +435,9 @@ class AtlasBuilder:
         target_coords = np.asarray(target_coords, dtype=np.float64)
         N, d = source_coords.shape
         if target_coords.shape != (N, d):
-            raise ValueError("source_coords and target_coords must have the same shape.")
+            raise ValueError(
+                "source_coords and target_coords must have the same shape."
+            )
 
         if map_type == "affine":
             # Least-squares affine: y = M @ x + b
@@ -446,13 +463,15 @@ class AtlasBuilder:
             tmap.fit(source_coords, target_coords, epochs=300)
             return tmap
         else:
-            raise ValueError(f"Unknown map_type '{map_type}'. Use 'affine' or 'neural'.")
+            raise ValueError(
+                f"Unknown map_type '{map_type}'. Use 'affine' or 'neural'."
+            )
 
     def fit_transition_map_simple(
         self,
         chart_a: Chart,
         chart_b: Chart,
-    ) -> Optional[TransitionMap]:
+    ) -> TransitionMap | None:
         """Fit a transition map between two charts using their data snapshots.
 
         A convenience method used by :meth:`AtlasManager.rebuild_overlaps`.
@@ -472,7 +491,12 @@ class AtlasBuilder:
             tgt_c = chart_b._data_snapshot[overlap_idx]
         except IndexError:
             return None
-        tmap = self.fit_transition_map(overlap_data=None, source_coords=src_c, target_coords=tgt_c, map_type="affine")
+        tmap = self.fit_transition_map(
+            overlap_data=None,
+            source_coords=src_c,
+            target_coords=tgt_c,
+            map_type="affine",
+        )
         tmap.source_chart_id = chart_a.chart_id
         tmap.target_chart_id = chart_b.chart_id
         ov_bounds = self.compute_overlap_bounds(chart_a, chart_b)
@@ -480,7 +504,9 @@ class AtlasBuilder:
             tmap.overlap_region = ov_bounds
         logger.info(
             "Fitted affine transition '%s' -> '%s' (%d overlap points).",
-            chart_a.name, chart_b.name, len(overlap_idx),
+            chart_a.name,
+            chart_b.name,
+            len(overlap_idx),
         )
         return tmap
 
@@ -490,10 +516,10 @@ class AtlasBuilder:
     def build(
         self,
         data: np.ndarray,
-        modality_labels: Optional[np.ndarray] = None,
-        n_charts_hint: Optional[int] = None,
-        resolution: Optional[float] = None,
-    ) -> "AtlasManager":
+        modality_labels: np.ndarray | None = None,
+        n_charts_hint: int | None = None,
+        resolution: float | None = None,
+    ) -> AtlasManager:
         """Full atlas construction pipeline.
 
         Parameters
@@ -517,6 +543,7 @@ class AtlasBuilder:
         """
         # Lazy import to avoid circular dependency with atlas_manager
         from .atlas_manager import AtlasManager
+
         data = np.asarray(data, dtype=np.float64)
         N, D = data.shape
         logger.info("=== Atlas build start ===  N=%d, D=%d", N, D)
@@ -536,7 +563,8 @@ class AtlasBuilder:
             resolution = self._tune_resolution(knn_graph, n_charts_hint)
 
         clusters = self.detect_chart_boundaries(
-            knn_graph, resolution=resolution or 1.0,
+            knn_graph,
+            resolution=resolution or 1.0,
         )
 
         # 4. Create charts
@@ -566,6 +594,7 @@ class AtlasBuilder:
                         d = d.reshape(1, -1)
                     scaled = sc_o.transform(d)
                     return pca_o.transform(scaled)
+
                 return _embed
 
             def _make_inverse(pca_o, sc_o):
@@ -575,6 +604,7 @@ class AtlasBuilder:
                         c = c.reshape(1, -1)
                     unscaled = pca_o.inverse_transform(c)
                     return sc_o.inverse_transform(unscaled)
+
                 return _inv
 
             chart.embedding_fn = _make_embed(pca_obj, scaler_obj)
@@ -584,13 +614,14 @@ class AtlasBuilder:
 
             # Embed data to establish bounds
             chart.embed(data[indices])
-            chart.anchor_points = coords[
-                np.linspace(0, n - 1, min(20, n), dtype=int)
-            ]
+            chart.anchor_points = coords[np.linspace(0, n - 1, min(20, n), dtype=int)]
 
             atlas.add_chart(chart)
             logger.info(
-                "Chart '%s': %d points, dim=%d.", chart.name, n, chart.dim,
+                "Chart '%s': %d points, dim=%d.",
+                chart.name,
+                n,
+                chart.dim,
             )
 
         # 5. Overlap detection & transition fitting
@@ -601,8 +632,16 @@ class AtlasBuilder:
                 overlap_idx = self.compute_overlap_regions(ci, cj, knn_graph)
                 if overlap_idx is not None and len(overlap_idx) >= 3:
                     # Fit affine transition
-                    src_coords = ci._data_snapshot[overlap_idx] if ci._data_snapshot is not None else None
-                    tgt_coords = cj._data_snapshot[overlap_idx] if cj._data_snapshot is not None else None
+                    src_coords = (
+                        ci._data_snapshot[overlap_idx]
+                        if ci._data_snapshot is not None
+                        else None
+                    )
+                    tgt_coords = (
+                        cj._data_snapshot[overlap_idx]
+                        if cj._data_snapshot is not None
+                        else None
+                    )
                     if src_coords is not None and tgt_coords is not None:
                         try:
                             tmap = self.fit_transition_map(
@@ -620,12 +659,15 @@ class AtlasBuilder:
                         except Exception as e:
                             logger.warning(
                                 "Failed to fit transition '%s' -> '%s': %s",
-                                ci.name, cj.name, e,
+                                ci.name,
+                                cj.name,
+                                e,
                             )
 
         logger.info(
             "=== Atlas build complete ===  %d charts, %d transitions.",
-            len(atlas._charts), len(atlas._transitions),
+            len(atlas._charts),
+            len(atlas._transitions),
         )
         return atlas
 
@@ -636,7 +678,7 @@ class AtlasBuilder:
         self,
         atlas: AtlasManager,
         data: np.ndarray,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Compute quality metrics for an atlas.
 
         Parameters
@@ -668,7 +710,7 @@ class AtlasBuilder:
         coverage = len(covered) / max(N, 1)
 
         # Overlap ratios
-        overlap_ratios: List[float] = []
+        overlap_ratios: list[float] = []
         transition_chart_ids = set()
         for tmap in transitions:
             src_id = tmap.source_chart_id
@@ -691,10 +733,7 @@ class AtlasBuilder:
         for tmap in transitions:
             connected_chart_ids.add(tmap.source_chart_id)
             connected_chart_ids.add(tmap.target_chart_id)
-        n_isolated = sum(
-            1 for c in charts
-            if c.chart_id not in connected_chart_ids
-        )
+        n_isolated = sum(1 for c in charts if c.chart_id not in connected_chart_ids)
 
         dim_estimates = [c.dim for c in charts]
 
@@ -737,6 +776,8 @@ class AtlasBuilder:
             best_res = mid
         logger.info(
             "Resolution tuning: target=%d, got=%d (res=%.3f).",
-            target_n, n, best_res,
+            target_n,
+            n,
+            best_res,
         )
         return best_res

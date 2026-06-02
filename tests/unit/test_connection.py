@@ -50,8 +50,9 @@ class TestLeviCivitaConnection:
         def const_field(x):
             return np.array([0.0, 1.0, 0.0])
 
-        result = conn.covariant_derivative(const_field, np.array([1.0, 0.0, 0.0]),
-                                             np.zeros(3), _euclidean_metric)
+        result = conn.covariant_derivative(
+            const_field, np.array([1.0, 0.0, 0.0]), np.zeros(3), _euclidean_metric
+        )
         # Constant field in Euclidean space → zero derivative
         np.testing.assert_allclose(result, 0.0, atol=0.1)
 
@@ -63,7 +64,8 @@ class TestLeviCivitaConnection:
 
         result = conn.transport_across_charts(
             np.array([1.0, 0.0]),
-            "chart_a", "chart_b",
+            "chart_a",
+            "chart_b",
             identity_map,
             metric_fn_source=_euclidean_metric,
             metric_fn_target=_euclidean_metric,

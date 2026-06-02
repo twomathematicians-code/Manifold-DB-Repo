@@ -15,31 +15,27 @@ singleton and Pydantic models.
 
 from __future__ import annotations
 
-import asyncio
-import json
 import logging
-import time
-import uuid
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import numpy as np
-from fastapi import APIRouter, BackgroundTasks, HTTPException, Query as QueryParam
+from fastapi import APIRouter, BackgroundTasks, HTTPException
+from fastapi import Query as QueryParam
 
-from manifold_db.api.server import (  # noqa: F401 — re-exports
-    AppState,
+from manifold_db.api.server import (
+    AppState,  # noqa: F401 — re-exports
+    AtlasBuildRequest,
     BatchInsertRequest,
     BatchInsertResponse,
     ChartInfo,
     CrossModalQueryRequest,
     DatabaseStats,
-    ExplainResponse,
     GeodesicQueryRequest,
     HealthResponse,
     InsertData,
     InsertResponse,
     LoadRequest,
     QueryRequest,
-    QueryResultResponse,
     SaveRequest,
     _chart_to_info,
     _insert_single,
@@ -47,11 +43,8 @@ from manifold_db.api.server import (  # noqa: F401 — re-exports
     _result_to_response,
     _run_query,
     app_state,
-    get_app_state,
 )
 from manifold_db.query.dsl import ManifoldQuery, MetricType, QueryType
-from manifold_db.query.engine import QueryResult
-from manifold_db.storage.data_store import DataPoint
 
 logger = logging.getLogger(__name__)
 
@@ -68,7 +61,10 @@ router_insert = APIRouter()
     response_model=InsertResponse,
     summary="Insert a single data point",
     description="Insert one data point (vector + metadata + modality) into the manifold database.",
-    responses={400: {"description": "Invalid input"}, 500: {"description": "Internal error"}},
+    responses={
+        400: {"description": "Invalid input"},
+        500: {"description": "Internal error"},
+    },
 )
 async def insert_data_point(body: InsertData) -> InsertResponse:
     """Insert a single data point and return its generated ID."""
@@ -92,14 +88,17 @@ async def insert_data_point(body: InsertData) -> InsertResponse:
     response_model=BatchInsertResponse,
     summary="Insert multiple data points",
     description="Insert many data points in a single request.",
-    responses={400: {"description": "Invalid input"}, 500: {"description": "Internal error"}},
+    responses={
+        400: {"description": "Invalid input"},
+        500: {"description": "Internal error"},
+    },
 )
 async def batch_insert(body: BatchInsertRequest) -> BatchInsertResponse:
     """Insert multiple data points and return their IDs."""
     if not body.points:
         raise HTTPException(status_code=400, detail="No points provided in the request")
 
-    point_ids: List[str] = []
+    point_ids: list[str] = []
     try:
         for pt in body.points:
             pid = await _insert_single(
@@ -136,9 +135,12 @@ router_query = APIRouter()
         "Accept a ManifoldQuery JSON object and execute it against the database. "
         "Set use_explain=true to return the execution plan instead of results."
     ),
-    responses={400: {"description": "Invalid query"}, 500: {"description": "Execution error"}},
+    responses={
+        400: {"description": "Invalid query"},
+        500: {"description": "Execution error"},
+    },
 )
-async def execute_query(body: QueryRequest) -> Dict[str, Any]:
+async def execute_query(body: QueryRequest) -> dict[str, Any]:
     """Parse, validate, and execute a ManifoldQuery from JSON."""
     try:
         manifold_query = ManifoldQuery.from_dict(body.query)
@@ -171,9 +173,12 @@ async def execute_query(body: QueryRequest) -> Dict[str, Any]:
     "/geodesic-query",
     summary="Geodesic ball query",
     description="Find all data points within a geodesic distance epsilon of a center point.",
-    responses={400: {"description": "Invalid parameters"}, 500: {"description": "Query error"}},
+    responses={
+        400: {"description": "Invalid parameters"},
+        500: {"description": "Query error"},
+    },
 )
-async def geodesic_query(body: GeodesicQueryRequest) -> Dict[str, Any]:
+async def geodesic_query(body: GeodesicQueryRequest) -> dict[str, Any]:
     """Execute a geodesic ball query using the query engine."""
     try:
         manifold_query = ManifoldQuery(
@@ -203,9 +208,12 @@ async def geodesic_query(body: GeodesicQueryRequest) -> Dict[str, Any]:
         "Retrieve data from one modality given a query in another modality. "
         "Uses parallel transport to bridge the modality gap."
     ),
-    responses={400: {"description": "Invalid parameters"}, 500: {"description": "Query error"}},
+    responses={
+        400: {"description": "Invalid parameters"},
+        500: {"description": "Query error"},
+    },
 )
-async def cross_modal_query(body: CrossModalQueryRequest) -> Dict[str, Any]:
+async def cross_modal_query(body: CrossModalQueryRequest) -> dict[str, Any]:
     """Execute a cross-modal query with parallel transport."""
     try:
         manifold_query = ManifoldQuery(
@@ -240,9 +248,9 @@ async def explain_query(
     metric: str = QueryParam("geodesic", description="Distance metric"),
     k: int = QueryParam(10, description="Number of results"),
     epsilon: float = QueryParam(1.0, description="Geodesic ball radius"),
-    modality: Optional[str] = QueryParam(None, description="Modality filter"),
-    chart_id: Optional[str] = QueryParam(None, description="Chart ID"),
-) -> Dict[str, Any]:
+    modality: str | None = QueryParam(None, description="Modality filter"),
+    chart_id: str | None = QueryParam(None, description="Chart ID"),
+) -> dict[str, Any]:
     """Return an execution plan for a query without executing it."""
     try:
         manifold_query = ManifoldQuery(
@@ -272,11 +280,11 @@ router_charts = APIRouter()
 
 @router_charts.get(
     "/charts",
-    response_model=List[ChartInfo],
+    response_model=list[ChartInfo],
     summary="List all charts",
     description="Return a summary of every chart in the atlas.",
 )
-async def list_charts() -> List[Dict[str, Any]]:
+async def list_charts() -> list[dict[str, Any]]:
     """Return a list of all charts with summary information."""
     if app_state.atlas_manager is None:
         raise HTTPException(status_code=503, detail="AtlasManager not initialised")
@@ -291,7 +299,7 @@ async def list_charts() -> List[Dict[str, Any]]:
     description="Return detailed information about a specific chart.",
     responses={404: {"description": "Chart not found"}},
 )
-async def get_chart(chart_id: str) -> Dict[str, Any]:
+async def get_chart(chart_id: str) -> dict[str, Any]:
     """Return details for a single chart identified by its ID."""
     if app_state.atlas_manager is None:
         raise HTTPException(status_code=503, detail="AtlasManager not initialised")
@@ -310,7 +318,7 @@ router_atlas = APIRouter()
 
 
 async def _build_atlas_background(
-    modality: Optional[str] = None,
+    modality: str | None = None,
     overlap_ratio: float = 0.3,
     min_chart_size: int = 50,
     max_charts: int = 100,
@@ -323,14 +331,16 @@ async def _build_atlas_background(
     app_state._atlas_building = True
     try:
         if app_state.atlas_manager is None or app_state.data_store is None:
-            logger.error("Cannot build atlas: atlas_manager or data_store not initialised")
+            logger.error(
+                "Cannot build atlas: atlas_manager or data_store not initialised"
+            )
             return
 
         # Gather all vectors from the data store
         if app_state.data_store._chart_index:
             # Collect vectors from in-memory chart index
-            all_vectors: List[np.ndarray] = []
-            all_ids: List[str] = []
+            all_vectors: list[np.ndarray] = []
+            all_ids: list[str] = []
             for chart_vecs in app_state.data_store._chart_index.values():
                 for pid, vec in chart_vecs.items():
                     all_ids.append(pid)
@@ -345,7 +355,10 @@ async def _build_atlas_background(
 
         logger.info(
             "Building atlas from %d data points (modality=%s, overlap=%.2f, max_charts=%d)",
-            len(data_matrix), modality, overlap_ratio, max_charts,
+            len(data_matrix),
+            modality,
+            overlap_ratio,
+            max_charts,
         )
 
         app_state.atlas_manager.build_atlas(
@@ -371,12 +384,15 @@ async def _build_atlas_background(
     "/atlas/build",
     summary="Trigger atlas building",
     description="Build the atlas from current data. This runs as a background task.",
-    responses={202: {"description": "Atlas build started"}, 503: {"description": "Service unavailable"}},
+    responses={
+        202: {"description": "Atlas build started"},
+        503: {"description": "Service unavailable"},
+    },
 )
 async def build_atlas(
     body: AtlasBuildRequest,
     background_tasks: BackgroundTasks,
-) -> Dict[str, str]:
+) -> dict[str, str]:
     """Trigger atlas building as a background task."""
     if app_state.atlas_manager is None:
         raise HTTPException(status_code=503, detail="AtlasManager not initialised")
@@ -411,7 +427,7 @@ router_system = APIRouter()
     summary="Health check",
     description="Return the API version, uptime, and basic status.",
 )
-async def health_check() -> Dict[str, Any]:
+async def health_check() -> dict[str, Any]:
     """Return health status of the API."""
     total_points = 0
     if app_state.data_store is not None:
@@ -423,7 +439,9 @@ async def health_check() -> Dict[str, Any]:
 
     return {
         "status": "ok",
-        "version": __import__("manifold_db.api.server", fromlist=["__VERSION__"]).__VERSION__,
+        "version": __import__(
+            "manifold_db.api.server", fromlist=["__VERSION__"]
+        ).__VERSION__,
         "uptime_seconds": round(app_state.uptime_seconds, 2),
         "total_points": total_points,
     }
@@ -435,14 +453,15 @@ async def health_check() -> Dict[str, Any]:
     summary="Database statistics",
     description="Return comprehensive statistics about the database.",
 )
-async def database_stats() -> Dict[str, Any]:
+async def database_stats() -> dict[str, Any]:
     """Return full database statistics."""
     import importlib
+
     server_mod = importlib.import_module("manifold_db.api.server")
 
     total_points = 0
-    modalities: Dict[str, int] = {}
-    charts_list: List[str] = []
+    modalities: dict[str, int] = {}
+    charts_list: list[str] = []
     n_charts = 0
     n_transitions = 0
 
@@ -472,7 +491,9 @@ async def database_stats() -> Dict[str, Any]:
         "n_transitions": n_transitions,
         "modalities": modalities,
         "charts_list": charts_list,
-        "atlas_name": app_state.atlas_manager.name if app_state.atlas_manager else "default",
+        "atlas_name": (
+            app_state.atlas_manager.name if app_state.atlas_manager else "default"
+        ),
         "storage_backend": storage_backend,
         "uptime_seconds": round(app_state.uptime_seconds, 2),
     }
@@ -484,11 +505,12 @@ async def database_stats() -> Dict[str, Any]:
     description="Persist the atlas and data store to the given path.",
     responses={500: {"description": "Save failed"}},
 )
-async def save_database(body: SaveRequest) -> Dict[str, str]:
+async def save_database(body: SaveRequest) -> dict[str, str]:
     """Save the database (atlas + data store) to disk."""
     try:
         save_path = body.path
         from pathlib import Path as FilePath
+
         FilePath(save_path).mkdir(parents=True, exist_ok=True)
 
         # Save atlas
@@ -511,9 +533,12 @@ async def save_database(body: SaveRequest) -> Dict[str, str]:
     "/load",
     summary="Load database from disk",
     description="Restore the atlas and data store from the given path.",
-    responses={400: {"description": "Path not found"}, 500: {"description": "Load failed"}},
+    responses={
+        400: {"description": "Path not found"},
+        500: {"description": "Load failed"},
+    },
 )
-async def load_database(body: LoadRequest) -> Dict[str, str]:
+async def load_database(body: LoadRequest) -> dict[str, str]:
     """Load the database (atlas + data store) from disk."""
     from pathlib import Path as FilePath
 
@@ -534,7 +559,9 @@ async def load_database(body: LoadRequest) -> Dict[str, str]:
 
         # Import data
         if data_file.exists() and app_state.data_store is not None:
-            count = await app_state.data_store.import_data(str(data_file), format="json")
+            count = await app_state.data_store.import_data(
+                str(data_file), format="json"
+            )
             logger.info("Loaded %d data points from %s", count, data_file)
 
         return {"status": "ok", "message": f"Database loaded from {body.path}"}

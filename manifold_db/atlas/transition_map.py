@@ -16,13 +16,12 @@ and ``jacobian``.
 from __future__ import annotations
 
 import abc
-import json
 import logging
 import uuid
-from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Tuple, Type
+from typing import Any
 
 import numpy as np
+import torch
 
 logger = logging.getLogger(__name__)
 
@@ -43,8 +42,8 @@ class TransitionMap(abc.ABC):
         source_chart_id: str,
         target_chart_id: str,
         dim: int,
-        overlap_region: Optional[Tuple[np.ndarray, np.ndarray]] = None,
-        transition_id: Optional[str] = None,
+        overlap_region: tuple[np.ndarray, np.ndarray] | None = None,
+        transition_id: str | None = None,
     ) -> None:
         self.source_chart_id = source_chart_id
         self.target_chart_id = target_chart_id
@@ -53,16 +52,19 @@ class TransitionMap(abc.ABC):
         self._overlap_region = overlap_region
         logger.info(
             "TransitionMap %s: %s -> %s (dim=%d)",
-            self.transition_id, source_chart_id, target_chart_id, dim,
+            self.transition_id,
+            source_chart_id,
+            target_chart_id,
+            dim,
         )
 
     @property
-    def overlap_region(self) -> Optional[Tuple[np.ndarray, np.ndarray]]:
-        """ ``(min_coords, max_coords)`` defining the overlap domain in source coords. """
+    def overlap_region(self) -> tuple[np.ndarray, np.ndarray] | None:
+        """``(min_coords, max_coords)`` defining the overlap domain in source coords."""
         return self._overlap_region
 
     @overlap_region.setter
-    def overlap_region(self, value: Optional[Tuple[np.ndarray, np.ndarray]]) -> None:
+    def overlap_region(self, value: tuple[np.ndarray, np.ndarray] | None) -> None:
         self._overlap_region = value
 
     # ---- abstract interface --------------------------------------------------
@@ -119,7 +121,10 @@ class TransitionMap(abc.ABC):
             logger.warning(
                 "TransitionMap %s: %d/%d points outside overlap region "
                 "(first violator idx=%d).",
-                self.transition_id, int(outside.sum()), len(coords), idx,
+                self.transition_id,
+                int(outside.sum()),
+                len(coords),
+                idx,
             )
             raise ValueError(
                 f"Coordinate at index {idx} is outside the overlap region. "
@@ -129,12 +134,12 @@ class TransitionMap(abc.ABC):
 
     # ---- serialization -------------------------------------------------------
     @abc.abstractmethod
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Serialize to a JSON-friendly dictionary."""
 
     @classmethod
     @abc.abstractmethod
-    def from_dict(cls: Type["TransitionMap"], d: Dict[str, Any]) -> "TransitionMap":
+    def from_dict(cls: type[TransitionMap], d: dict[str, Any]) -> TransitionMap:
         """Deserialize from a dictionary."""
 
     # ---- convenience ---------------------------------------------------------
@@ -164,11 +169,13 @@ class LinearTransition(TransitionMap):
         source_chart_id: str,
         target_chart_id: str,
         dim: int,
-        matrix: Optional[np.ndarray] = None,
-        overlap_region: Optional[Tuple[np.ndarray, np.ndarray]] = None,
-        transition_id: Optional[str] = None,
+        matrix: np.ndarray | None = None,
+        overlap_region: tuple[np.ndarray, np.ndarray] | None = None,
+        transition_id: str | None = None,
     ) -> None:
-        super().__init__(source_chart_id, target_chart_id, dim, overlap_region, transition_id)
+        super().__init__(
+            source_chart_id, target_chart_id, dim, overlap_region, transition_id
+        )
         if matrix is None:
             self.matrix = np.eye(dim, dtype=np.float64)
         else:
@@ -204,9 +211,11 @@ class LinearTransition(TransitionMap):
             c = c.reshape(1, -1)
         N = c.shape[0]
         # Constant Jacobian for linear map
-        return np.broadcast_to(self.matrix[np.newaxis, :, :], (N, self.dim, self.dim)).copy()
+        return np.broadcast_to(
+            self.matrix[np.newaxis, :, :], (N, self.dim, self.dim)
+        ).copy()
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         ov = self._overlap_region
         return {
             "type": "LinearTransition",
@@ -215,11 +224,13 @@ class LinearTransition(TransitionMap):
             "target_chart_id": self.target_chart_id,
             "dim": self.dim,
             "matrix": self.matrix.tolist(),
-            "overlap_region": [ov[0].tolist(), ov[1].tolist()] if ov is not None else None,
+            "overlap_region": (
+                [ov[0].tolist(), ov[1].tolist()] if ov is not None else None
+            ),
         }
 
     @classmethod
-    def from_dict(cls, d: Dict[str, Any]) -> "LinearTransition":
+    def from_dict(cls, d: dict[str, Any]) -> LinearTransition:
         ov_raw = d.get("overlap_region")
         ov = (
             (np.asarray(ov_raw[0]), np.asarray(ov_raw[1]))
@@ -253,14 +264,24 @@ class AffineTransition(TransitionMap):
         source_chart_id: str,
         target_chart_id: str,
         dim: int,
-        matrix: Optional[np.ndarray] = None,
-        bias: Optional[np.ndarray] = None,
-        overlap_region: Optional[Tuple[np.ndarray, np.ndarray]] = None,
-        transition_id: Optional[str] = None,
+        matrix: np.ndarray | None = None,
+        bias: np.ndarray | None = None,
+        overlap_region: tuple[np.ndarray, np.ndarray] | None = None,
+        transition_id: str | None = None,
     ) -> None:
-        super().__init__(source_chart_id, target_chart_id, dim, overlap_region, transition_id)
-        self.matrix = np.eye(dim, dtype=np.float64) if matrix is None else np.asarray(matrix, dtype=np.float64)
-        self.bias = np.zeros(dim, dtype=np.float64) if bias is None else np.asarray(bias, dtype=np.float64)
+        super().__init__(
+            source_chart_id, target_chart_id, dim, overlap_region, transition_id
+        )
+        self.matrix = (
+            np.eye(dim, dtype=np.float64)
+            if matrix is None
+            else np.asarray(matrix, dtype=np.float64)
+        )
+        self.bias = (
+            np.zeros(dim, dtype=np.float64)
+            if bias is None
+            else np.asarray(bias, dtype=np.float64)
+        )
         if self.matrix.shape != (dim, dim):
             raise ValueError(f"Matrix must be ({dim}, {dim}), got {self.matrix.shape}")
         if self.bias.shape != (dim,):
@@ -291,9 +312,11 @@ class AffineTransition(TransitionMap):
         if c.ndim == 1:
             c = c.reshape(1, -1)
         N = c.shape[0]
-        return np.broadcast_to(self.matrix[np.newaxis, :, :], (N, self.dim, self.dim)).copy()
+        return np.broadcast_to(
+            self.matrix[np.newaxis, :, :], (N, self.dim, self.dim)
+        ).copy()
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         ov = self._overlap_region
         return {
             "type": "AffineTransition",
@@ -303,11 +326,13 @@ class AffineTransition(TransitionMap):
             "dim": self.dim,
             "matrix": self.matrix.tolist(),
             "bias": self.bias.tolist(),
-            "overlap_region": [ov[0].tolist(), ov[1].tolist()] if ov is not None else None,
+            "overlap_region": (
+                [ov[0].tolist(), ov[1].tolist()] if ov is not None else None
+            ),
         }
 
     @classmethod
-    def from_dict(cls, d: Dict[str, Any]) -> "AffineTransition":
+    def from_dict(cls, d: dict[str, Any]) -> AffineTransition:
         ov_raw = d.get("overlap_region")
         ov = (
             (np.asarray(ov_raw[0]), np.asarray(ov_raw[1]))
@@ -356,16 +381,20 @@ class _InvertibleMLP(torch.nn.Module):
         self.scale_nets = torch.nn.ModuleList()
         self.shift_nets = torch.nn.ModuleList()
         for _ in range(n_layers):
-            self.scale_nets.append(torch.nn.Sequential(
-                torch.nn.Linear(half, hidden),
-                torch.nn.ReLU(),
-                torch.nn.Linear(hidden, half),
-            ))
-            self.shift_nets.append(torch.nn.Sequential(
-                torch.nn.Linear(half, hidden),
-                torch.nn.ReLU(),
-                torch.nn.Linear(hidden, half),
-            ))
+            self.scale_nets.append(
+                torch.nn.Sequential(
+                    torch.nn.Linear(half, hidden),
+                    torch.nn.ReLU(),
+                    torch.nn.Linear(hidden, half),
+                )
+            )
+            self.shift_nets.append(
+                torch.nn.Sequential(
+                    torch.nn.Linear(half, hidden),
+                    torch.nn.ReLU(),
+                    torch.nn.Linear(hidden, half),
+                )
+            )
 
     def _coupling_forward(self, x: torch.Tensor, layer_idx: int) -> torch.Tensor:
         """Single coupling layer forward pass."""
@@ -428,17 +457,22 @@ class NeuralTransition(TransitionMap):
         dim: int,
         hidden: int = 64,
         n_coupling_layers: int = 4,
-        overlap_region: Optional[Tuple[np.ndarray, np.ndarray]] = None,
-        transition_id: Optional[str] = None,
+        overlap_region: tuple[np.ndarray, np.ndarray] | None = None,
+        transition_id: str | None = None,
     ) -> None:
-        super().__init__(source_chart_id, target_chart_id, dim, overlap_region, transition_id)
+        super().__init__(
+            source_chart_id, target_chart_id, dim, overlap_region, transition_id
+        )
         self.hidden = hidden
         self.n_coupling_layers = n_coupling_layers
         self._model = _InvertibleMLP(dim, hidden=hidden, n_layers=n_coupling_layers)
         self._trained = False
         logger.info(
             "NeuralTransition %s created: dim=%d hidden=%d layers=%d",
-            self.transition_id, dim, hidden, n_coupling_layers,
+            self.transition_id,
+            dim,
+            hidden,
+            n_coupling_layers,
         )
 
     # ------------------------------------------------------------------
@@ -452,7 +486,7 @@ class NeuralTransition(TransitionMap):
         lr: float = 1e-3,
         batch_size: int = 256,
         verbose: bool = False,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Train the invertible MLP on paired coordinate data.
 
         Parameters
@@ -481,7 +515,7 @@ class NeuralTransition(TransitionMap):
         if N < 2:
             raise ValueError("Need at least 2 data points to train.")
         optimizer = torch.optim.Adam(self._model.parameters(), lr=lr)
-        history: List[float] = []
+        history: list[float] = []
         for epoch in range(epochs):
             perm = torch.randperm(N)
             epoch_loss = 0.0
@@ -502,12 +536,17 @@ class NeuralTransition(TransitionMap):
             if verbose and (epoch % 50 == 0 or epoch == epochs - 1):
                 logger.info(
                     "NeuralTransition %s epoch %d/%d  loss=%.6f",
-                    self.transition_id, epoch, epochs, avg_loss,
+                    self.transition_id,
+                    epoch,
+                    epochs,
+                    avg_loss,
                 )
         self._trained = True
         self._model.eval()
         result = {"final_loss": history[-1], "epochs": epochs}
-        logger.info("NeuralTransition %s training complete: %s", self.transition_id, result)
+        logger.info(
+            "NeuralTransition %s training complete: %s", self.transition_id, result
+        )
         return result
 
     # ------------------------------------------------------------------
@@ -567,24 +606,18 @@ class NeuralTransition(TransitionMap):
             c_plus[:, i] += eps
             c_minus[:, i] -= eps
             with torch.no_grad():
-                fp = self._model(
-                    torch.as_tensor(c_plus, dtype=torch.float32)
-                ).numpy()
-                fm = self._model(
-                    torch.as_tensor(c_minus, dtype=torch.float32)
-                ).numpy()
+                fp = self._model(torch.as_tensor(c_plus, dtype=torch.float32)).numpy()
+                fm = self._model(torch.as_tensor(c_minus, dtype=torch.float32)).numpy()
             J[:, :, i] = (fp - fm) / (2.0 * eps)
         return J
 
     # ------------------------------------------------------------------
     # Serialization
     # ------------------------------------------------------------------
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         ov = self._overlap_region
         state = {
-            "model_state": {
-                k: v.tolist() for k, v in self._model.state_dict().items()
-            }
+            "model_state": {k: v.tolist() for k, v in self._model.state_dict().items()}
         }
         return {
             "type": "NeuralTransition",
@@ -596,11 +629,13 @@ class NeuralTransition(TransitionMap):
             "n_coupling_layers": self.n_coupling_layers,
             "trained": self._trained,
             "state": state,
-            "overlap_region": [ov[0].tolist(), ov[1].tolist()] if ov is not None else None,
+            "overlap_region": (
+                [ov[0].tolist(), ov[1].tolist()] if ov is not None else None
+            ),
         }
 
     @classmethod
-    def from_dict(cls, d: Dict[str, Any]) -> "NeuralTransition":
+    def from_dict(cls, d: dict[str, Any]) -> NeuralTransition:
         ov_raw = d.get("overlap_region")
         ov = (
             (np.asarray(ov_raw[0]), np.asarray(ov_raw[1]))
@@ -620,8 +655,7 @@ class NeuralTransition(TransitionMap):
         state_raw = d.get("state", {}).get("model_state", {})
         if state_raw:
             state = {
-                k: torch.as_tensor(v, dtype=torch.float32)
-                for k, v in state_raw.items()
+                k: torch.as_tensor(v, dtype=torch.float32) for k, v in state_raw.items()
             }
             obj._model.load_state_dict(state)
             obj._trained = d.get("trained", False)
@@ -632,14 +666,14 @@ class NeuralTransition(TransitionMap):
 # ======================================================================
 # Factory / registry
 # ======================================================================
-_TRANSITION_REGISTRY: Dict[str, Type[TransitionMap]] = {
+_TRANSITION_REGISTRY: dict[str, type[TransitionMap]] = {
     "LinearTransition": LinearTransition,
     "AffineTransition": AffineTransition,
     "NeuralTransition": NeuralTransition,
 }
 
 
-def create_transition_map(d: Dict[str, Any]) -> TransitionMap:
+def create_transition_map(d: dict[str, Any]) -> TransitionMap:
     """Instantiate a :class:`TransitionMap` from a serialised dict.
 
     Looks up ``d["type"]`` in the registry.

@@ -13,7 +13,7 @@ from __future__ import annotations
 import logging
 import time
 from collections import defaultdict
-from typing import Any, Callable, Dict, Optional, Tuple
+from typing import Any
 
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.requests import Request
@@ -49,10 +49,15 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
     def __init__(
         self,
         app: Any,
-        skip_paths: Optional[set] = None,
+        skip_paths: set | None = None,
     ) -> None:
         super().__init__(app)
-        self._skip_paths: set = skip_paths or {"/docs", "/redoc", "/openapi.json", "/health"}
+        self._skip_paths: set = skip_paths or {
+            "/docs",
+            "/redoc",
+            "/openapi.json",
+            "/health",
+        }
 
     async def dispatch(
         self,
@@ -118,14 +123,19 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         app: Any,
         max_requests: int = 100,
         window_seconds: int = 60,
-        skip_paths: Optional[set] = None,
+        skip_paths: set | None = None,
     ) -> None:
         super().__init__(app)
         self._max_requests = max_requests
         self._window_seconds = window_seconds
-        self._skip_paths: set = skip_paths or {"/docs", "/redoc", "/openapi.json", "/health"}
+        self._skip_paths: set = skip_paths or {
+            "/docs",
+            "/redoc",
+            "/openapi.json",
+            "/health",
+        }
         # ip → list of request timestamps
-        self._request_log: Dict[str, list] = defaultdict(list)
+        self._request_log: dict[str, list] = defaultdict(list)
 
     async def dispatch(
         self,
@@ -220,7 +230,9 @@ class ErrorHandlerMiddleware(BaseHTTPMiddleware):
         try:
             return await call_next(request)
         except Exception as exc:
-            logger.exception("Unhandled exception on %s %s", request.method, request.url.path)
+            logger.exception(
+                "Unhandled exception on %s %s", request.method, request.url.path
+            )
             status_code = 500
             detail = str(exc)
 
@@ -238,7 +250,7 @@ class ErrorHandlerMiddleware(BaseHTTPMiddleware):
                 status_code = 501
                 detail = f"Not implemented: {exc}"
 
-            error_body: Dict[str, Any] = {
+            error_body: dict[str, Any] = {
                 "error": type(exc).__name__,
                 "detail": detail,
                 "status": status_code,
@@ -246,6 +258,7 @@ class ErrorHandlerMiddleware(BaseHTTPMiddleware):
 
             if self._debug:
                 import traceback
+
                 error_body["traceback"] = traceback.format_exc()
 
             return JSONResponse(

@@ -21,20 +21,18 @@ GET    /api/v1/query/explain     — explain a query plan
 
 from __future__ import annotations
 
-import asyncio
 import logging
 import os
 import time
 import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import numpy as np
-from pydantic import BaseModel, Field
-from fastapi import BackgroundTasks, FastAPI, HTTPException, Request, Response
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from pydantic import BaseModel, Field
 
 from manifold_db.api.middleware import (
     ErrorHandlerMiddleware,
@@ -48,18 +46,12 @@ from manifold_db.api.routes import (
     router_query,
     router_system,
 )
-from manifold_db.query.dsl import ManifoldQuery, QueryType, MetricType
+from manifold_db.atlas.atlas_manager import AtlasManager
+from manifold_db.query.dsl import ManifoldQuery
 from manifold_db.query.engine import ExecutionPlan, QueryEngine, QueryResult
 from manifold_db.storage.backend import StorageManager
 from manifold_db.storage.data_store import DataPoint, DataStore
-from manifold_db.atlas.atlas_manager import AtlasManager
-from manifold_db.utils.config import (
-    ManifoldConfig,
-    load_config,
-    save_config,
-    validate_config,
-    default_config,
-)
+from manifold_db.utils.config import ManifoldConfig, default_config, load_config
 
 logger = logging.getLogger(__name__)
 
@@ -73,80 +65,97 @@ __VERSION__ = "0.1.0"
 
 class InsertData(BaseModel):
     """Schema for a single data-point to be inserted."""
-    vector: List[float] = Field(..., description="Embedding vector")
-    metadata: Dict[str, Any] = Field(default_factory=dict, description="Key-value metadata")
-    modality: str = Field(default="default", description="Modality tag (text, image, audio, etc.)")
-    chart_id: Optional[str] = Field(default=None, description="Optional chart assignment")
+
+    vector: list[float] = Field(..., description="Embedding vector")
+    metadata: dict[str, Any] = Field(
+        default_factory=dict, description="Key-value metadata"
+    )
+    modality: str = Field(
+        default="default", description="Modality tag (text, image, audio, etc.)"
+    )
+    chart_id: str | None = Field(default=None, description="Optional chart assignment")
 
 
 class InsertResponse(BaseModel):
     """Response after inserting a single data point."""
+
     point_id: str
     status: str = "ok"
 
 
 class BatchInsertRequest(BaseModel):
     """Schema for inserting multiple data points at once."""
-    points: List[InsertData]
+
+    points: list[InsertData]
     modality: str = "default"
-    chart_id: Optional[str] = None
+    chart_id: str | None = None
 
 
 class BatchInsertResponse(BaseModel):
     """Response after batch insertion."""
+
     inserted_count: int
-    point_ids: List[str]
+    point_ids: list[str]
     status: str = "ok"
 
 
 class QueryRequest(BaseModel):
     """General query request accepting a full ManifoldQuery JSON."""
-    query: Dict[str, Any] = Field(..., description="ManifoldQuery parameters")
-    use_explain: bool = Field(default=False, description="If True, return plan instead of results")
+
+    query: dict[str, Any] = Field(..., description="ManifoldQuery parameters")
+    use_explain: bool = Field(
+        default=False, description="If True, return plan instead of results"
+    )
 
 
 class GeodesicQueryRequest(BaseModel):
     """Request for a geodesic ball query (all points within epsilon)."""
-    center: List[float] = Field(..., description="Center point of the geodesic ball")
+
+    center: list[float] = Field(..., description="Center point of the geodesic ball")
     epsilon: float = Field(default=1.0, description="Radius of the geodesic ball")
     metric: str = Field(default="geodesic", description="Distance metric to use")
-    modality: Optional[str] = Field(default=None, description="Filter by modality")
-    chart_id: Optional[str] = Field(default=None, description="Restrict to chart")
+    modality: str | None = Field(default=None, description="Filter by modality")
+    chart_id: str | None = Field(default=None, description="Restrict to chart")
     max_results: int = Field(default=100, description="Maximum number of results")
 
 
 class CrossModalQueryRequest(BaseModel):
     """Request for cross-modal retrieval with parallel transport."""
+
     source_modality: str = Field(..., description="Source modality (e.g. 'text')")
     target_modality: str = Field(..., description="Target modality (e.g. 'image')")
-    query_point: List[float] = Field(..., description="Query embedding in source space")
+    query_point: list[float] = Field(..., description="Query embedding in source space")
     k: int = Field(default=10, description="Number of results to return")
     metric: str = Field(default="geodesic", description="Distance metric")
-    transport_via: str = Field(default="overlap_region", description="Transport strategy")
-    source_chart: Optional[str] = Field(default=None, description="Explicit source chart")
-    target_chart: Optional[str] = Field(default=None, description="Explicit target chart")
+    transport_via: str = Field(
+        default="overlap_region", description="Transport strategy"
+    )
+    source_chart: str | None = Field(default=None, description="Explicit source chart")
+    target_chart: str | None = Field(default=None, description="Explicit target chart")
 
 
 class ChartInfo(BaseModel):
     """Summary information about a single chart."""
+
     chart_id: str
     name: str
     dim: int
     ambient_dim: int
     has_bounds: bool
     n_anchor_points: int
-    metadata: Dict[str, Any] = {}
-    modality: Optional[str] = None
+    metadata: dict[str, Any] = {}
+    modality: str | None = None
 
 
 class DatabaseStats(BaseModel):
     """Database-level statistics."""
+
     version: str
     total_points: int = 0
     n_charts: int = 0
     n_transitions: int = 0
-    modalities: Dict[str, int] = {}
-    charts_list: List[str] = []
+    modalities: dict[str, int] = {}
+    charts_list: list[str] = []
     atlas_name: str = "default"
     storage_backend: str = "memory"
     uptime_seconds: float = 0.0
@@ -154,6 +163,7 @@ class DatabaseStats(BaseModel):
 
 class HealthResponse(BaseModel):
     """Health-check response."""
+
     status: str = "ok"
     version: str = __VERSION__
     uptime_seconds: float = 0.0
@@ -162,36 +172,41 @@ class HealthResponse(BaseModel):
 
 class QueryResultResponse(BaseModel):
     """Response for a query execution result."""
-    point_ids: List[int] = []
-    distances: List[float] = []
-    metadata: List[Dict[str, Any]] = []
+
+    point_ids: list[int] = []
+    distances: list[float] = []
+    metadata: list[dict[str, Any]] = []
     execution_time_ms: float = 0.0
-    chart_id: Optional[str] = None
-    query_type: Optional[str] = None
+    chart_id: str | None = None
+    query_type: str | None = None
     count: int = 0
 
 
 class ExplainResponse(BaseModel):
     """Response for query explanation."""
+
     query_type: str
-    steps: List[Dict[str, Any]] = []
+    steps: list[dict[str, Any]] = []
     total_estimated_ms: float = 0.0
     plan_text: str = ""
 
 
 class SaveRequest(BaseModel):
     """Request body to save the database to disk."""
+
     path: str = "./manifold_data"
 
 
 class LoadRequest(BaseModel):
     """Request body to load the database from disk."""
+
     path: str = "./manifold_data"
 
 
 class AtlasBuildRequest(BaseModel):
     """Request to trigger atlas building from current data."""
-    modality: Optional[str] = None
+
+    modality: str | None = None
     overlap_ratio: float = 0.3
     min_chart_size: int = 50
     max_charts: int = 100
@@ -211,10 +226,10 @@ class AppState:
 
     def __init__(self) -> None:
         self.config: ManifoldConfig = default_config()
-        self.data_store: Optional[DataStore] = None
-        self.query_engine: Optional[QueryEngine] = None
-        self.atlas_manager: Optional[AtlasManager] = None
-        self.storage_manager: Optional[StorageManager] = None
+        self.data_store: DataStore | None = None
+        self.query_engine: QueryEngine | None = None
+        self.atlas_manager: AtlasManager | None = None
+        self.storage_manager: StorageManager | None = None
         self._start_time: float = time.time()
         self._atlas_building: bool = False
 
@@ -252,7 +267,8 @@ async def lifespan(fastapi_app: FastAPI):
         except Exception as exc:
             logger.warning(
                 "Failed to load config from %s: %s — using defaults",
-                config_path, exc,
+                config_path,
+                exc,
             )
 
     # Initialise storage backend
@@ -348,10 +364,10 @@ app: FastAPI = create_app()
 
 
 async def _insert_single(
-    vector: List[float],
-    metadata: Dict[str, Any],
+    vector: list[float],
+    metadata: dict[str, Any],
     modality: str = "default",
-    chart_id: Optional[str] = None,
+    chart_id: str | None = None,
 ) -> str:
     """Insert a single data point into the data store and return its id."""
     if app_state.data_store is None:
@@ -375,7 +391,7 @@ async def _run_query(query: ManifoldQuery) -> QueryResult:
     return await app_state.query_engine.execute(query)
 
 
-def _result_to_response(result: QueryResult) -> Dict[str, Any]:
+def _result_to_response(result: QueryResult) -> dict[str, Any]:
     """Convert a QueryResult to a JSON-serialisable response dict."""
     return {
         "point_ids": [int(x) for x in result.point_ids.tolist()],
@@ -388,7 +404,7 @@ def _result_to_response(result: QueryResult) -> Dict[str, Any]:
     }
 
 
-def _plan_to_response(plan: ExecutionPlan, query_type: str) -> Dict[str, Any]:
+def _plan_to_response(plan: ExecutionPlan, query_type: str) -> dict[str, Any]:
     """Convert an ExecutionPlan to a JSON-serialisable response dict."""
     steps = [
         {
@@ -407,7 +423,7 @@ def _plan_to_response(plan: ExecutionPlan, query_type: str) -> Dict[str, Any]:
     }
 
 
-def _chart_to_info(chart: Any) -> Dict[str, Any]:
+def _chart_to_info(chart: Any) -> dict[str, Any]:
     """Convert a Chart object to a ChartInfo-compatible dict."""
     summary = chart.summary() if hasattr(chart, "summary") else {}
     return {

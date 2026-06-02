@@ -17,14 +17,11 @@ import abc
 import asyncio
 import json
 import logging
-import os
-import shutil
-import sqlite3
 import time
 from collections import OrderedDict
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any
 
 import numpy as np
 
@@ -35,27 +32,25 @@ logger = logging.getLogger(__name__)
 # Abstract Base
 # ──────────────────────────────────────────────────────────────
 
+
 class StorageBackend(abc.ABC):
     """Interface that all storage backends must implement."""
 
     @abc.abstractmethod
-    async def put(self, key: str, value: Any) -> None:
-        ...
+    async def put(self, key: str, value: Any) -> None: ...
 
     @abc.abstractmethod
-    async def get(self, key: str) -> Optional[Any]:
-        ...
+    async def get(self, key: str) -> Any | None: ...
 
     @abc.abstractmethod
-    async def delete(self, key: str) -> None:
-        ...
+    async def delete(self, key: str) -> None: ...
 
-    async def put_batch(self, items: Dict[str, Any]) -> None:
+    async def put_batch(self, items: dict[str, Any]) -> None:
         for k, v in items.items():
             await self.put(k, v)
 
-    async def get_batch(self, keys: List[str]) -> Dict[str, Any]:
-        result: Dict[str, Any] = {}
+    async def get_batch(self, keys: list[str]) -> dict[str, Any]:
+        result: dict[str, Any] = {}
         for k in keys:
             val = await self.get(k)
             if val is not None:
@@ -63,12 +58,10 @@ class StorageBackend(abc.ABC):
         return result
 
     @abc.abstractmethod
-    async def exists(self, key: str) -> bool:
-        ...
+    async def exists(self, key: str) -> bool: ...
 
     @abc.abstractmethod
-    async def list_keys(self, prefix: str = "") -> List[str]:
-        ...
+    async def list_keys(self, prefix: str = "") -> list[str]: ...
 
     # Transactions (optional – backends may raise NotImplementedError)
 
@@ -90,6 +83,7 @@ class StorageBackend(abc.ABC):
 # Memory Storage
 # ──────────────────────────────────────────────────────────────
 
+
 class MemoryStorage(StorageBackend):
     """
     In-memory dict-based storage. Thread-safe with asyncio.Lock.
@@ -97,10 +91,10 @@ class MemoryStorage(StorageBackend):
     """
 
     def __init__(self) -> None:
-        self._store: Dict[str, Any] = {}
+        self._store: dict[str, Any] = {}
         self._lock = asyncio.Lock()
         self._transaction_active = False
-        self._pending: Dict[str, Any] = {}
+        self._pending: dict[str, Any] = {}
         logger.info("MemoryStorage initialised")
 
     async def put(self, key: str, value: Any) -> None:
@@ -110,7 +104,7 @@ class MemoryStorage(StorageBackend):
             else:
                 self._store[key] = value
 
-    async def get(self, key: str) -> Optional[Any]:
+    async def get(self, key: str) -> Any | None:
         async with self._lock:
             if key in self._pending:
                 return self._pending[key]
@@ -123,14 +117,14 @@ class MemoryStorage(StorageBackend):
             else:
                 self._store.pop(key, None)
 
-    async def put_batch(self, items: Dict[str, Any]) -> None:
+    async def put_batch(self, items: dict[str, Any]) -> None:
         async with self._lock:
             if self._transaction_active:
                 self._pending.update(items)
             else:
                 self._store.update(items)
 
-    async def get_batch(self, keys: List[str]) -> Dict[str, Any]:
+    async def get_batch(self, keys: list[str]) -> dict[str, Any]:
         async with self._lock:
             result = {}
             for k in keys:
@@ -143,7 +137,7 @@ class MemoryStorage(StorageBackend):
         async with self._lock:
             return key in self._store or key in self._pending
 
-    async def list_keys(self, prefix: str = "") -> List[str]:
+    async def list_keys(self, prefix: str = "") -> list[str]:
         async with self._lock:
             keys = list(self._store.keys())
             if prefix:
@@ -179,6 +173,7 @@ class MemoryStorage(StorageBackend):
 # File Storage
 # ──────────────────────────────────────────────────────────────
 
+
 class FileStorage(StorageBackend):
     """
     Filesystem-based backend.
@@ -190,7 +185,7 @@ class FileStorage(StorageBackend):
         - Raw data   → data.npz or data.json
     """
 
-    def __init__(self, base_path: Union[str, Path] = "./manifold_data") -> None:
+    def __init__(self, base_path: str | Path = "./manifold_data") -> None:
         self.base_path = Path(base_path)
         self.base_path.mkdir(parents=True, exist_ok=True)
         self._lock = asyncio.Lock()
@@ -229,12 +224,12 @@ class FileStorage(StorageBackend):
                 with open(self._data_path(key), "w") as f:
                     json.dump(value, f, default=self._json_default)
 
-    async def get(self, key: str) -> Optional[Any]:
+    async def get(self, key: str) -> Any | None:
         async with self._lock:
             # Try JSON first
             p = self._data_path(key)
             if p.exists():
-                with open(p, "r") as f:
+                with open(p) as f:
                     return json.load(f)
             # Try numpy blob
             p = self._blob_path(key)
@@ -244,32 +239,46 @@ class FileStorage(StorageBackend):
             # Try chart
             p = self._chart_path(key)
             if p.exists():
-                with open(p, "r") as f:
+                with open(p) as f:
                     return json.load(f)
             # Try metric
             p = self._metric_path(key)
             if p.exists():
-                with open(p, "r") as f:
+                with open(p) as f:
                     return json.load(f)
             return None
 
     async def delete(self, key: str) -> None:
         async with self._lock:
-            for p in [self._data_path(key), self._blob_path(key),
-                      self._chart_path(key), self._metric_path(key)]:
+            for p in [
+                self._data_path(key),
+                self._blob_path(key),
+                self._chart_path(key),
+                self._metric_path(key),
+            ]:
                 if p.exists():
                     p.unlink()
 
     async def exists(self, key: str) -> bool:
-        for p in [self._data_path(key), self._blob_path(key),
-                  self._chart_path(key), self._metric_path(key)]:
+        for p in [
+            self._data_path(key),
+            self._blob_path(key),
+            self._chart_path(key),
+            self._metric_path(key),
+        ]:
             if p.exists():
                 return True
         return False
 
-    async def list_keys(self, prefix: str = "") -> List[str]:
-        keys: List[str] = []
-        for ext in ("*.chart.json", "*.index.npz", "*.metric.json", "*.data.json", "*.npz"):
+    async def list_keys(self, prefix: str = "") -> list[str]:
+        keys: list[str] = []
+        for ext in (
+            "*.chart.json",
+            "*.index.npz",
+            "*.metric.json",
+            "*.data.json",
+            "*.npz",
+        ):
             for p in self.base_path.glob(ext):
                 name = p.stem
                 # Remove suffixes like .chart, .index, .metric, .data
@@ -297,6 +306,7 @@ class FileStorage(StorageBackend):
 # ──────────────────────────────────────────────────────────────
 # SQLite Storage
 # ──────────────────────────────────────────────────────────────
+
 
 class SQLiteStorage(StorageBackend):
     """
@@ -349,9 +359,9 @@ class SQLiteStorage(StorageBackend):
     );
     """
 
-    def __init__(self, db_path: Union[str, Path] = "./manifold.db") -> None:
+    def __init__(self, db_path: str | Path = "./manifold.db") -> None:
         self.db_path = str(db_path)
-        self._conn: Optional[Any] = None  # aiosqlite connection
+        self._conn: Any | None = None  # aiosqlite connection
         self._lock = asyncio.Lock()
         logger.info("SQLiteStorage initialised at %s", self.db_path)
 
@@ -378,10 +388,17 @@ class SQLiteStorage(StorageBackend):
                 await self._put_dict(table, key, value)
             else:
                 # Store as generic blob in indices table
-                blob = np.dumps(value) if isinstance(value, np.ndarray) else str(value).encode()
+                blob = (
+                    np.dumps(value)
+                    if isinstance(value, np.ndarray)
+                    else str(value).encode()
+                )
                 await self._conn.execute(
-                    "INSERT OR REPLACE INTO indices (id, chart_id, index_type, index_data, created_at) "
-                    "VALUES (?, ?, 'raw', ?, ?)",
+                    (
+                        "INSERT OR REPLACE INTO indices "
+                        "(id, chart_id, index_type, index_data, created_at) "
+                        "VALUES (?, ?, 'raw', ?, ?)"
+                    ),
                     (key, "generic", blob, time.time()),
                 )
                 await self._conn.commit()
@@ -389,39 +406,66 @@ class SQLiteStorage(StorageBackend):
     async def _put_dict(self, table: str, key: str, value: dict):
         now = time.time()
         if table == "charts":
-            centre = np.array(value.get("centre", [])).tobytes() if "centre" in value else None
+            centre = (
+                np.array(value.get("centre", [])).tobytes()
+                if "centre" in value
+                else None
+            )
             await self._conn.execute(
-                "INSERT OR REPLACE INTO charts (chart_id, atlas_id, dimension, centre, basis, created_at) "
-                "VALUES (?, ?, ?, ?, ?, ?)",
-                (key, value.get("atlas_id", "default"),
-                 value.get("dimension", 0), centre,
-                 json.dumps(value.get("basis"), default=self._json_default),
-                 now),
+                (
+                    "INSERT OR REPLACE INTO charts "
+                    "(chart_id, atlas_id, dimension, centre, basis, created_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?)"
+                ),
+                (
+                    key,
+                    value.get("atlas_id", "default"),
+                    value.get("dimension", 0),
+                    centre,
+                    json.dumps(value.get("basis"), default=self._json_default),
+                    now,
+                ),
             )
         elif table == "metrics":
             await self._conn.execute(
-                "INSERT OR REPLACE INTO metrics (id, chart_id, metric_type, parameters, created_at) "
-                "VALUES (?, ?, ?, ?, ?)",
-                (key, value.get("chart_id", ""),
-                 value.get("metric_type", "geodesic"),
-                 json.dumps(value.get("parameters", {}), default=self._json_default),
-                 now),
+                (
+                    "INSERT OR REPLACE INTO metrics "
+                    "(id, chart_id, metric_type, parameters, created_at) "
+                    "VALUES (?, ?, ?, ?, ?)"
+                ),
+                (
+                    key,
+                    value.get("chart_id", ""),
+                    value.get("metric_type", "geodesic"),
+                    json.dumps(value.get("parameters", {}), default=self._json_default),
+                    now,
+                ),
             )
         elif table == "data_points":
             vec = np.array(value.get("vector", [])).astype(np.float32).tobytes()
             await self._conn.execute(
-                "INSERT OR REPLACE INTO data_points (id, chart_id, vector, metadata, modality, timestamp) "
-                "VALUES (?, ?, ?, ?, ?, ?)",
-                (key, value.get("chart_id", ""),
-                 vec,
-                 json.dumps(value.get("metadata", {}), default=self._json_default),
-                 value.get("modality", ""),
-                 now),
+                (
+                    "INSERT OR REPLACE INTO data_points "
+                    "(id, chart_id, vector, metadata, modality, timestamp) "
+                    "VALUES (?, ?, ?, ?, ?, ?)"
+                ),
+                (
+                    key,
+                    value.get("chart_id", ""),
+                    vec,
+                    json.dumps(value.get("metadata", {}), default=self._json_default),
+                    value.get("modality", ""),
+                    now,
+                ),
             )
         elif table == "transition_maps":
             src = value.get("source_chart", "")
             tgt = value.get("target_chart", "")
-            overlap = np.array(value.get("overlap_data", [])).tobytes() if "overlap_data" in value else None
+            overlap = (
+                np.array(value.get("overlap_data", [])).tobytes()
+                if "overlap_data" in value
+                else None
+            )
             await self._conn.execute(
                 "INSERT OR REPLACE INTO transition_maps (source_chart, target_chart, overlap_data) "
                 "VALUES (?, ?, ?)",
@@ -448,14 +492,20 @@ class SQLiteStorage(StorageBackend):
             return "transition_maps"
         return "indices"
 
-    async def get(self, key: str) -> Optional[Any]:
+    async def get(self, key: str) -> Any | None:
         await self._ensure_conn()
         async with self._lock:
             # Try charts
-            cursor = await self._conn.execute("SELECT * FROM charts WHERE chart_id = ?", (key,))
+            cursor = await self._conn.execute(
+                "SELECT * FROM charts WHERE chart_id = ?", (key,)
+            )
             row = await cursor.fetchone()
             if row:
-                centre = np.frombuffer(row["centre"], dtype=np.float64) if row["centre"] else np.array([])
+                centre = (
+                    np.frombuffer(row["centre"], dtype=np.float64)
+                    if row["centre"]
+                    else np.array([])
+                )
                 return {
                     "chart_id": row["chart_id"],
                     "atlas_id": row["atlas_id"],
@@ -466,7 +516,9 @@ class SQLiteStorage(StorageBackend):
                 }
 
             # Try data_points
-            cursor = await self._conn.execute("SELECT * FROM data_points WHERE id = ?", (key,))
+            cursor = await self._conn.execute(
+                "SELECT * FROM data_points WHERE id = ?", (key,)
+            )
             row = await cursor.fetchone()
             if row:
                 vec = np.frombuffer(row["vector"], dtype=np.float32)
@@ -480,19 +532,25 @@ class SQLiteStorage(StorageBackend):
                 }
 
             # Try metrics
-            cursor = await self._conn.execute("SELECT * FROM metrics WHERE id = ?", (key,))
+            cursor = await self._conn.execute(
+                "SELECT * FROM metrics WHERE id = ?", (key,)
+            )
             row = await cursor.fetchone()
             if row:
                 return {
                     "id": row["id"],
                     "chart_id": row["chart_id"],
                     "metric_type": row["metric_type"],
-                    "parameters": json.loads(row["parameters"]) if row["parameters"] else {},
+                    "parameters": (
+                        json.loads(row["parameters"]) if row["parameters"] else {}
+                    ),
                     "created_at": row["created_at"],
                 }
 
             # Try indices
-            cursor = await self._conn.execute("SELECT * FROM indices WHERE id = ?", (key,))
+            cursor = await self._conn.execute(
+                "SELECT * FROM indices WHERE id = ?", (key,)
+            )
             row = await cursor.fetchone()
             if row and row["index_data"]:
                 return row["index_data"]
@@ -504,7 +562,9 @@ class SQLiteStorage(StorageBackend):
             for table in ("charts", "data_points", "metrics", "indices"):
                 try:
                     col = "chart_id" if table == "charts" else "id"
-                    await self._conn.execute(f"DELETE FROM {table} WHERE {col} = ?", (key,))
+                    await self._conn.execute(
+                        f"DELETE FROM {table} WHERE {col} = ?", (key,)
+                    )
                 except Exception:
                     pass
             await self._conn.commit()
@@ -513,9 +573,9 @@ class SQLiteStorage(StorageBackend):
         val = await self.get(key)
         return val is not None
 
-    async def list_keys(self, prefix: str = "") -> List[str]:
+    async def list_keys(self, prefix: str = "") -> list[str]:
         await self._ensure_conn()
-        keys: List[str] = []
+        keys: list[str] = []
         async with self._lock:
             for table in ("charts", "data_points", "metrics", "indices"):
                 col = "chart_id" if table == "charts" else "id"
@@ -558,9 +618,11 @@ class SQLiteStorage(StorageBackend):
 # Storage Manager
 # ──────────────────────────────────────────────────────────────
 
+
 @dataclass
 class _WAL:
     """Simple write-ahead log entry."""
+
     timestamp: float
     operation: str
     key: str
@@ -585,19 +647,21 @@ class StorageManager:
         self._cache_size = cache_size
         self._wal_enabled = wal_enabled
         self._cache: OrderedDict[str, Any] = OrderedDict()
-        self._wal: List[_WAL] = []
+        self._wal: list[_WAL] = []
         self._lock = asyncio.Lock()
         self._compaction_threshold = cache_size * 2
         logger.info(
             "StorageManager created: backend=%s cache=%d wal=%s",
-            type(backend).__name__, cache_size, wal_enabled,
+            type(backend).__name__,
+            cache_size,
+            wal_enabled,
         )
 
     @classmethod
     def create(
         cls,
         backend_type: str = "memory",
-        config: Optional[Dict[str, Any]] = None,
+        config: dict[str, Any] | None = None,
     ) -> StorageManager:
         """
         Factory: create a StorageManager with the given backend.
@@ -624,7 +688,7 @@ class StorageManager:
 
     # ── cache helpers ──────────────────────────────────────────
 
-    def _cache_get(self, key: str) -> Optional[Any]:
+    def _cache_get(self, key: str) -> Any | None:
         if key in self._cache:
             self._cache.move_to_end(key)
             return self._cache[key]
@@ -643,7 +707,7 @@ class StorageManager:
         """Compact the WAL when it exceeds the threshold."""
         if len(self._wal) >= self._compaction_threshold:
             logger.info("Auto-compacting WAL (%d entries)", len(self._wal))
-            self._wal = self._wal[len(self._wal) // 2:]
+            self._wal = self._wal[len(self._wal) // 2 :]
 
     # ── WAL helpers ───────────────────────────────────────────
 
@@ -651,12 +715,14 @@ class StorageManager:
         if not self._wal_enabled:
             return
         value_hash = str(hash(str(value))) if value is not None else "None"
-        self._wal.append(_WAL(
-            timestamp=time.time(),
-            operation=op,
-            key=key,
-            value_hash=value_hash,
-        ))
+        self._wal.append(
+            _WAL(
+                timestamp=time.time(),
+                operation=op,
+                key=key,
+                value_hash=value_hash,
+            )
+        )
 
     # ── public API (delegates to backend + cache) ─────────────
 
@@ -667,7 +733,7 @@ class StorageManager:
             await self._backend.put(key, value)
             await self._auto_compact()
 
-    async def get(self, key: str) -> Optional[Any]:
+    async def get(self, key: str) -> Any | None:
         cached = self._cache_get(key)
         if cached is not None:
             return cached
@@ -683,7 +749,7 @@ class StorageManager:
             self._cache_invalidate(key)
             await self._backend.delete(key)
 
-    async def put_batch(self, items: Dict[str, Any]) -> None:
+    async def put_batch(self, items: dict[str, Any]) -> None:
         async with self._lock:
             for k, v in items.items():
                 self._wal_append("put", k, v)
@@ -691,9 +757,9 @@ class StorageManager:
             await self._backend.put_batch(items)
             await self._auto_compact()
 
-    async def get_batch(self, keys: List[str]) -> Dict[str, Any]:
-        result: Dict[str, Any] = {}
-        remaining: List[str] = []
+    async def get_batch(self, keys: list[str]) -> dict[str, Any]:
+        result: dict[str, Any] = {}
+        remaining: list[str] = []
         for k in keys:
             cached = self._cache_get(k)
             if cached is not None:
@@ -713,7 +779,7 @@ class StorageManager:
             return True
         return await self._backend.exists(key)
 
-    async def list_keys(self, prefix: str = "") -> List[str]:
+    async def list_keys(self, prefix: str = "") -> list[str]:
         return await self._backend.list_keys(prefix)
 
     async def begin_transaction(self) -> None:
@@ -732,11 +798,15 @@ class StorageManager:
         async with self._lock:
             self._cache.clear()
 
-    async def wal_entries(self) -> List[Dict[str, Any]]:
+    async def wal_entries(self) -> list[dict[str, Any]]:
         """Return the current WAL entries."""
         return [
-            {"timestamp": e.timestamp, "operation": e.operation,
-             "key": e.key, "value_hash": e.value_hash}
+            {
+                "timestamp": e.timestamp,
+                "operation": e.operation,
+                "key": e.key,
+                "value_hash": e.value_hash,
+            }
             for e in self._wal
         ]
 

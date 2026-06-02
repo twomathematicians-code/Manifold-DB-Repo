@@ -3,14 +3,15 @@ Unit tests for manifold_db.query — QueryParser, QueryBuilder, ManifoldQuery, Q
 """
 
 import asyncio
+
 import numpy as np
 import pytest
 
 from manifold_db.query import (
+    ManifoldQuery,
     MetricType,
     QueryBuilder,
     QueryEngine,
-    ManifoldQuery,
     QueryParser,
     QueryResult,
 )
@@ -29,17 +30,13 @@ class TestQueryParser:
 
     def test_parse_tangent_query(self):
         parser = QueryParser()
-        q = parser.parse(
-            "TANGENT_QUERY FROM chart 'text_emb' WHERE distance < 0.5"
-        )
+        q = parser.parse("TANGENT_QUERY FROM chart 'text_emb' WHERE distance < 0.5")
         assert q.chart_id == "text_emb"
         assert q.epsilon == 0.5
 
     def test_parse_cross_modal(self):
         parser = QueryParser()
-        q = parser.parse(
-            "CROSS_MODAL FROM 'text' TO 'image' TRANSPORT VIA 'overlap'"
-        )
+        q = parser.parse("CROSS_MODAL FROM 'text' TO 'image' TRANSPORT VIA 'overlap'")
         assert q.modality == "text"
         assert q.target_modality == "image"
 
@@ -51,22 +48,26 @@ class TestQueryParser:
 
 class TestQueryBuilder:
     def test_fluent_select(self):
-        q = (QueryBuilder()
-             .select("*")
-             .from_chart("text_emb")
-             .where_geodesic(np.array([1.0, 0.0]), epsilon=0.5)
-             .top_k(10)
-             .build())
+        q = (
+            QueryBuilder()
+            .select("*")
+            .from_chart("text_emb")
+            .where_geodesic(np.array([1.0, 0.0]), epsilon=0.5)
+            .top_k(10)
+            .build()
+        )
         assert q.chart_id == "text_emb"
         assert q.k == 10
         assert q.epsilon == 0.5
 
     def test_fluent_cross_modal(self):
-        q = (QueryBuilder()
-             .cross_modal("text", "image")
-             .with_transport("overlap")
-             .top_k(5)
-             .build())
+        q = (
+            QueryBuilder()
+            .cross_modal("text", "image")
+            .with_transport("overlap")
+            .top_k(5)
+            .build()
+        )
         assert q.modality == "text"
         assert q.target_modality == "image"
         assert q.transport_via == "overlap"
@@ -76,9 +77,11 @@ class TestQueryBuilder:
             QueryBuilder().build()
 
     def test_parallel_transport_query(self):
-        q = (QueryBuilder()
-             .parallel_transport(np.array([1.0, 0.0]), "chart_a", "chart_b")
-             .build())
+        q = (
+            QueryBuilder()
+            .parallel_transport(np.array([1.0, 0.0]), "chart_a", "chart_b")
+            .build()
+        )
         assert q.source_chart == "chart_a"
         assert q.target_chart == "chart_b"
 
@@ -101,8 +104,11 @@ class TestManifoldQuery:
 
     def test_estimate_cost(self):
         q = ManifoldQuery(
-            query_type=QueryBuilder().tangent_query("c", np.zeros(5)).build().query_type
-            if False else None,
+            query_type=(
+                QueryBuilder().tangent_query("c", np.zeros(5)).build().query_type
+                if False
+                else None
+            ),
             k=10,
         )
         # Just test it runs

@@ -8,9 +8,9 @@ numerical differentiation routines.
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
 import numpy as np
-from typing import Callable, Optional, Tuple
-import warnings
 
 
 def ensure_spd(
@@ -89,12 +89,20 @@ def cholesky_decomposition(
         raise ValueError(f"Expected square matrix, got shape {spd_matrix.shape}")
 
     try:
-        return np.linalg.cholesky(spd_matrix).T if not lower else np.linalg.cholesky(spd_matrix)
+        return (
+            np.linalg.cholesky(spd_matrix).T
+            if not lower
+            else np.linalg.cholesky(spd_matrix)
+        )
     except np.linalg.LinAlgError:
         # One retry after ensuring SPD
         spd_matrix = ensure_spd(spd_matrix)
         try:
-            return np.linalg.cholesky(spd_matrix).T if not lower else np.linalg.cholesky(spd_matrix)
+            return (
+                np.linalg.cholesky(spd_matrix).T
+                if not lower
+                else np.linalg.cholesky(spd_matrix)
+            )
         except np.linalg.LinAlgError as exc:
             raise ValueError(
                 "Matrix is not positive-definite even after correction."
@@ -333,7 +341,7 @@ def curvature_bounds(
     metric_fn: Callable[[np.ndarray], np.ndarray],
     region: np.ndarray,
     n_samples: int = 100,
-) -> Tuple[float, float]:
+) -> tuple[float, float]:
     """Estimate min/max sectional curvature on a region of the manifold.
 
     Samples points uniformly from the bounding box defined by *region*
@@ -371,8 +379,10 @@ def curvature_bounds(
         # Numerical second derivatives of the metric → Christoffel → curvature
         # Simplified: use finite differences for the metric gradient
         for i in range(d):
-            x_plus = x.copy(); x_plus[i] += 1e-4
-            x_minus = x.copy(); x_minus[i] -= 1e-4
+            x_plus = x.copy()
+            x_plus[i] += 1e-4
+            x_minus = x.copy()
+            x_minus[i] -= 1e-4
             g_plus = np.asarray(metric_fn(x_plus), dtype=np.float64)
             g_minus = np.asarray(metric_fn(x_minus), dtype=np.float64)
             dg = (g_plus - g_minus) / (2e-4)
@@ -403,7 +413,7 @@ def volume_element(metric_tensor: np.ndarray) -> float:
 
 def barycentric_projection(
     points: np.ndarray,
-    weights: Optional[np.ndarray] = None,
+    weights: np.ndarray | None = None,
 ) -> np.ndarray:
     """Weighted average (Fréchet / barycentric mean approximation).
 

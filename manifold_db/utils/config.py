@@ -9,16 +9,16 @@ from __future__ import annotations
 
 import json
 import os
-from dataclasses import dataclass, field, asdict
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any
 
 import yaml
-
 
 # ---------------------------------------------------------------------------
 # Sub-configurations
 # ---------------------------------------------------------------------------
+
 
 @dataclass
 class AtlasConfig:
@@ -103,6 +103,7 @@ class ServerConfig:
 # Top-level configuration
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class ManifoldConfig:
     """Root configuration container for the Manifold Database.
@@ -141,6 +142,7 @@ class ManifoldConfig:
 # Defaults, loading, saving, validation
 # ---------------------------------------------------------------------------
 
+
 def default_config() -> ManifoldConfig:
     """Return a configuration object populated with sensible defaults."""
     return ManifoldConfig()
@@ -156,7 +158,7 @@ def _apply_env_overrides(config: ManifoldConfig) -> ManifoldConfig:
     prefix = "MANIFOLD_DB_"
 
     # Map of section names to sub-config dataclass instances
-    sections: Dict[str, Any] = {
+    sections: dict[str, Any] = {
         "atlas": config.atlas,
         "index": config.index,
         "geodesic": config.geodesic,
@@ -170,7 +172,7 @@ def _apply_env_overrides(config: ManifoldConfig) -> ManifoldConfig:
     for env_key, env_val in os.environ.items():
         if not env_key.startswith(prefix):
             continue
-        remainder = env_key[len(prefix):].lower()
+        remainder = env_key[len(prefix) :].lower()
         parts = remainder.split("_", 1)
         if len(parts) != 2:
             continue
@@ -247,7 +249,9 @@ def save_config(config: ManifoldConfig, path: str | Path) -> None:
     path = Path(path)
     data = _config_to_dict(config)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(yaml.dump(data, default_flow_style=False, sort_keys=False), encoding="utf-8")
+    path.write_text(
+        yaml.dump(data, default_flow_style=False, sort_keys=False), encoding="utf-8"
+    )
 
 
 def validate_config(config: ManifoldConfig) -> None:
@@ -304,7 +308,9 @@ def validate_config(config: ManifoldConfig) -> None:
 
     # Connection
     if config.connection.transport_method not in ("schild", "parallel", "rolling"):
-        errors.append("connection.transport_method must be 'schild', 'parallel', or 'rolling'")
+        errors.append(
+            "connection.transport_method must be 'schild', 'parallel', or 'rolling'"
+        )
     if config.connection.max_chain_length < 1:
         errors.append("connection.max_chain_length must be >= 1")
 
@@ -325,21 +331,25 @@ def validate_config(config: ManifoldConfig) -> None:
         errors.append("server.workers must be >= 1")
 
     if errors:
-        raise ValueError("Configuration validation failed:\n  - " + "\n  - ".join(errors))
+        raise ValueError(
+            "Configuration validation failed:\n  - " + "\n  - ".join(errors)
+        )
 
 
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
 
-def _config_to_dict(config: ManifoldConfig) -> Dict[str, Any]:
+
+def _config_to_dict(config: ManifoldConfig) -> dict[str, Any]:
     """Recursively convert a ManifoldConfig to a plain dict."""
     return asdict(config)
 
 
-def _dict_to_config(data: Dict[str, Any]) -> ManifoldConfig:
+def _dict_to_config(data: dict[str, Any]) -> ManifoldConfig:
     """Build a ManifoldConfig from a nested dict, ignoring unknown keys."""
-    def _build_sub(sub_cls: type, sub_data: Optional[Dict[str, Any]]) -> Any:
+
+    def _build_sub(sub_cls: type, sub_data: dict[str, Any] | None) -> Any:
         if not sub_data or not isinstance(sub_data, dict):
             return sub_cls()
         valid_keys = {f.name for f in sub_cls.__dataclass_fields__.values()}

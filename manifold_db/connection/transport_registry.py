@@ -9,11 +9,12 @@ a cost heatmap for chart-pair transports.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
-import hashlib
 from collections import OrderedDict
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from collections.abc import Callable
+from typing import Any
 
 import numpy as np
 
@@ -23,6 +24,7 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 #  Transport Registry
 # ---------------------------------------------------------------------------
+
 
 class TransportRegistry:
     """Registry and cache for parallel transport computations.
@@ -39,12 +41,12 @@ class TransportRegistry:
     def __init__(self, max_cache_size: int = 256) -> None:
         self.max_cache_size = max_cache_size
         # Chart-pair → transport function
-        self._transports: Dict[Tuple[str, str], Callable[..., np.ndarray]] = {}
+        self._transports: dict[tuple[str, str], Callable[..., np.ndarray]] = {}
         # LRU cache: key → (result, metadata)
-        self._cache: OrderedDict[str, Tuple[np.ndarray, Dict[str, Any]]] = OrderedDict()
+        self._cache: OrderedDict[str, tuple[np.ndarray, dict[str, Any]]] = OrderedDict()
         # Precomputed cost heatmap
-        self._heatmap: Optional[np.ndarray] = None
-        self._heatmap_chart_ids: Optional[List[str]] = None
+        self._heatmap: np.ndarray | None = None
+        self._heatmap_chart_ids: list[str] | None = None
 
     # ---- registration -----------------------------------------------------
 
@@ -76,7 +78,7 @@ class TransportRegistry:
         self,
         source_chart: str,
         target_chart: str,
-    ) -> Optional[Callable[..., np.ndarray]]:
+    ) -> Callable[..., np.ndarray] | None:
         """Retrieve the transport function for a chart pair.
 
         Returns ``None`` if no transport is registered.
@@ -87,7 +89,7 @@ class TransportRegistry:
         """Check whether a transport function is registered for the pair."""
         return (source_chart, target_chart) in self._transports
 
-    def list_transports(self) -> List[Tuple[str, str]]:
+    def list_transports(self) -> list[tuple[str, str]]:
         """List all registered (source, target) chart pairs."""
         return list(self._transports.keys())
 
@@ -112,7 +114,7 @@ class TransportRegistry:
         target_chart: str,
         vector: np.ndarray,
         **kwargs: Any,
-    ) -> Optional[np.ndarray]:
+    ) -> np.ndarray | None:
         """Look up a cached transport result.
 
         Returns ``None`` on cache miss.
@@ -136,21 +138,28 @@ class TransportRegistry:
     ) -> None:
         """Store a transport result in the cache."""
         key = self._make_cache_key(source_chart, target_chart, vector, **kwargs)
-        self._cache[key] = (result.copy(), {
-            "source_chart": source_chart,
-            "target_chart": target_chart,
-        })
+        self._cache[key] = (
+            result.copy(),
+            {
+                "source_chart": source_chart,
+                "target_chart": target_chart,
+            },
+        )
         # Evict oldest if over capacity
         while len(self._cache) > self.max_cache_size:
             self._cache.popitem(last=False)
-        logger.debug("Cached transport result for %s → %s (cache size=%d)",
-                      source_chart, target_chart, len(self._cache))
+        logger.debug(
+            "Cached transport result for %s → %s (cache size=%d)",
+            source_chart,
+            target_chart,
+            len(self._cache),
+        )
 
     # ---- chain composition ------------------------------------------------
 
     def compute_chain(
         self,
-        transport_chain: List[Tuple[str, str]],
+        transport_chain: list[tuple[str, str]],
         vector: np.ndarray,
         **kwargs: Any,
     ) -> np.ndarray:
@@ -183,7 +192,9 @@ class TransportRegistry:
                     f"at chain position {i}"
                 )
             v = fn(v, **kwargs)
-            logger.debug("Chain step %d/%d: %s → %s", i + 1, len(transport_chain), src, tgt)
+            logger.debug(
+                "Chain step %d/%d: %s → %s", i + 1, len(transport_chain), src, tgt
+            )
         return v
 
     # ---- invalidation -----------------------------------------------------
@@ -194,12 +205,15 @@ class TransportRegistry:
         Returns the number of entries removed.
         """
         to_remove = [
-            key for key, (_, meta) in self._cache.items()
+            key
+            for key, (_, meta) in self._cache.items()
             if meta["source_chart"] == chart_id or meta["target_chart"] == chart_id
         ]
         for key in to_remove:
             del self._cache[key]
-        logger.info("Invalidated %d cache entries for chart %s", len(to_remove), chart_id)
+        logger.info(
+            "Invalidated %d cache entries for chart %s", len(to_remove), chart_id
+        )
         return len(to_remove)
 
     def clear_cache(self) -> None:
@@ -211,8 +225,8 @@ class TransportRegistry:
 
     def precompute_heatmap(
         self,
-        chart_ids: List[str],
-        sample_vectors: Optional[np.ndarray] = None,
+        chart_ids: list[str],
+        sample_vectors: np.ndarray | None = None,
         n_samples: int = 10,
     ) -> np.ndarray:
         """Precompute a transport cost heatmap between chart pairs.
@@ -275,11 +289,14 @@ class TransportRegistry:
 
         self._heatmap = heatmap
         self._heatmap_chart_ids = chart_ids
-        logger.info("Precomputed heatmap for %d charts (%.0f%% reachable)",
-                     n_charts, 100.0 * np.sum(np.isfinite(heatmap)) / heatmap.size)
+        logger.info(
+            "Precomputed heatmap for %d charts (%.0f%% reachable)",
+            n_charts,
+            100.0 * np.sum(np.isfinite(heatmap)) / heatmap.size,
+        )
         return heatmap
 
-    def get_heatmap(self) -> Optional[Tuple[np.ndarray, List[str]]]:
+    def get_heatmap(self) -> tuple[np.ndarray, list[str]] | None:
         """Return the precomputed heatmap and chart labels, or None."""
         if self._heatmap is None or self._heatmap_chart_ids is None:
             return None
@@ -298,9 +315,9 @@ class TransportRegistry:
 
     # ---- serialization ----------------------------------------------------
 
-    def serialize(self) -> Dict[str, Any]:
+    def serialize(self) -> dict[str, Any]:
         """Serialize registry state (excludes non-serialisable transport functions)."""
-        data: Dict[str, Any] = {
+        data: dict[str, Any] = {
             "max_cache_size": self.max_cache_size,
             "transport_pairs": list(self._transports.keys()),
             "cache_size": len(self._cache),
@@ -310,7 +327,7 @@ class TransportRegistry:
             data["heatmap_chart_ids"] = self._heatmap_chart_ids
         return data
 
-    def deserialize(self, data: Dict[str, Any]) -> None:
+    def deserialize(self, data: dict[str, Any]) -> None:
         """Restore registry metadata from serialized data.
 
         Note: Transport functions must be re-registered manually.

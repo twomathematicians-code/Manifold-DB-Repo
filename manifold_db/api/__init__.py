@@ -20,7 +20,20 @@ Public API:
     ExplainResponse      – query plan explanation response
 """
 
+from manifold_db.api.middleware import (
+    ErrorHandlerMiddleware,
+    RateLimitMiddleware,
+    RequestLoggingMiddleware,
+)
+from manifold_db.api.routes import (
+    router_atlas,
+    router_charts,
+    router_insert,
+    router_query,
+    router_system,
+)
 from manifold_db.api.server import (
+    BatchInsertRequest,
     ChartInfo,
     CrossModalQueryRequest,
     DatabaseStats,
@@ -30,21 +43,6 @@ from manifold_db.api.server import (
     InsertRequest,
     QueryRequest,
     QueryResultResponse,
-    BatchInsertRequest,
-)
-
-from manifold_db.api.middleware import (
-    RequestLoggingMiddleware,
-    RateLimitMiddleware,
-    ErrorHandlerMiddleware,
-)
-
-from manifold_db.api.routes import (
-    router_insert,
-    router_query,
-    router_charts,
-    router_atlas,
-    router_system,
 )
 
 __all__ = [

@@ -13,13 +13,14 @@ import csv
 import json
 import logging
 import time
-from dataclasses import dataclass, field, asdict
+from collections.abc import Sequence
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Sequence, Union
+from typing import Any
 
 import numpy as np
 
-from manifold_db.storage.backend import StorageBackend, StorageManager, MemoryStorage
+from manifold_db.storage.backend import MemoryStorage, StorageBackend
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +28,7 @@ logger = logging.getLogger(__name__)
 # ──────────────────────────────────────────────────────────────
 # DataPoint
 # ──────────────────────────────────────────────────────────────
+
 
 @dataclass
 class DataPoint:
@@ -41,14 +43,15 @@ class DataPoint:
         chart_id:  ID of the chart this point belongs to (None if unassigned).
         timestamp: Unix timestamp of insertion.
     """
+
     id: str
     vector: np.ndarray
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
     modality: str = "default"
-    chart_id: Optional[str] = None
+    chart_id: str | None = None
     timestamp: float = field(default_factory=time.time)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "id": self.id,
             "vector": self.vector.tolist(),
@@ -59,7 +62,7 @@ class DataPoint:
         }
 
     @classmethod
-    def from_dict(cls, d: Dict[str, Any]) -> DataPoint:
+    def from_dict(cls, d: dict[str, Any]) -> DataPoint:
         vec = d.get("vector", [])
         if not isinstance(vec, np.ndarray):
             vec = np.asarray(vec, dtype=np.float64)
@@ -80,6 +83,7 @@ class DataPoint:
 # ──────────────────────────────────────────────────────────────
 # Data Store
 # ──────────────────────────────────────────────────────────────
+
 
 class DataStore:
     """
@@ -102,20 +106,20 @@ class DataStore:
 
     def __init__(
         self,
-        backend: Optional[StorageBackend] = None,
-        vector_dimension: Optional[int] = None,
+        backend: StorageBackend | None = None,
+        vector_dimension: int | None = None,
     ) -> None:
         if backend is None:
             backend = MemoryStorage()
         self._backend = backend
         self._vector_dimension = vector_dimension
         # In-memory index: chart_id → {point_id: vector}
-        self._chart_index: Dict[str, Dict[str, np.ndarray]] = {}
+        self._chart_index: dict[str, dict[str, np.ndarray]] = {}
         # Modality index: modality → set of point_ids
-        self._modality_index: Dict[str, set] = {}
+        self._modality_index: dict[str, set] = {}
         # Full vector matrix for fast batch search (populated lazily)
-        self._all_vectors: Optional[np.ndarray] = None
-        self._all_ids: List[str] = []
+        self._all_vectors: np.ndarray | None = None
+        self._all_ids: list[str] = []
         self._dirty = True
         self._lock = asyncio.Lock()
         logger.info("DataStore initialised (backend=%s)", type(backend).__name__)
@@ -136,7 +140,7 @@ class DataStore:
         """Insert multiple data points. Returns number inserted."""
         if not data_points:
             return 0
-        items: Dict[str, Any] = {}
+        items: dict[str, Any] = {}
         for dp in data_points:
             self._validate_vector(dp.vector)
             key = f"{self._KEY_PREFIX}{dp.id}"
@@ -148,7 +152,7 @@ class DataStore:
         logger.info("Batch inserted %d data points", len(data_points))
         return len(data_points)
 
-    async def get(self, point_id: str) -> Optional[DataPoint]:
+    async def get(self, point_id: str) -> DataPoint | None:
         """Retrieve a single data point by id."""
         key = f"{self._KEY_PREFIX}{point_id}"
         data = await self._backend.get(key)
@@ -156,13 +160,13 @@ class DataStore:
             return None
         return DataPoint.from_dict(data)
 
-    async def get_batch(self, point_ids: Sequence[str]) -> List[DataPoint]:
+    async def get_batch(self, point_ids: Sequence[str]) -> list[DataPoint]:
         """Retrieve multiple data points by ids."""
         if not point_ids:
             return []
         keys = [f"{self._KEY_PREFIX}{pid}" for pid in point_ids]
         data_map = await self._backend.get_batch(keys)
-        results: List[DataPoint] = []
+        results: list[DataPoint] = []
         for pid in point_ids:
             key = f"{self._KEY_PREFIX}{pid}"
             if key in data_map:
@@ -181,7 +185,7 @@ class DataStore:
             self._dirty = True
             return True
 
-    async def update(self, point_id: str, new_data: Dict[str, Any]) -> Optional[DataPoint]:
+    async def update(self, point_id: str, new_data: dict[str, Any]) -> DataPoint | None:
         """Update fields of an existing data point."""
         async with self._lock:
             key = f"{self._KEY_PREFIX}{point_id}"
@@ -208,9 +212,9 @@ class DataStore:
         self,
         query_vector: np.ndarray,
         k: int = 10,
-        chart_id: Optional[str] = None,
+        chart_id: str | None = None,
         metric: str = "cosine",
-    ) -> List[tuple]:
+    ) -> list[tuple]:
         """
         Search for the k nearest neighbours of query_vector.
 
@@ -226,7 +230,6 @@ class DataStore:
         vectors = []
         ids = []
         for pid in candidates:
-            cid = f"{self._KEY_PREFIX}{pid}"
             vec = None
             # Check in-memory chart index first
             for chart_idx in self._chart_index.values():
@@ -249,14 +252,14 @@ class DataStore:
 
     # ── filters ───────────────────────────────────────────────
 
-    async def get_by_modality(self, modality: str) -> List[DataPoint]:
+    async def get_by_modality(self, modality: str) -> list[DataPoint]:
         """Get all data points matching a modality."""
         point_ids = self._modality_index.get(modality, set())
         if not point_ids:
             return []
         return await self.get_batch(list(point_ids))
 
-    async def get_by_chart(self, chart_id: str) -> List[DataPoint]:
+    async def get_by_chart(self, chart_id: str) -> list[DataPoint]:
         """Get all data points belonging to a chart."""
         chart_vectors = self._chart_index.get(chart_id, {})
         if not chart_vectors:
@@ -265,11 +268,15 @@ class DataStore:
 
     # ── stats ────────────────────────────────────────────────
 
-    async def stats(self) -> Dict[str, Any]:
+    async def stats(self) -> dict[str, Any]:
         """Return summary statistics of the data store."""
         all_ids = await self._backend.list_keys(prefix=self._KEY_PREFIX)
-        chart_dist: Dict[str, int] = {cid: len(vecs) for cid, vecs in self._chart_index.items()}
-        modality_dist: Dict[str, int] = {m: len(s) for m, s in self._modality_index.items()}
+        chart_dist: dict[str, int] = {
+            cid: len(vecs) for cid, vecs in self._chart_index.items()
+        }
+        modality_dist: dict[str, int] = {
+            m: len(s) for m, s in self._modality_index.items()
+        }
         return {
             "total_points": len(all_ids),
             "modalities": modality_dist,
@@ -281,7 +288,7 @@ class DataStore:
 
     # ── export / import ───────────────────────────────────────
 
-    async def export(self, format: str = "json", path: Optional[str] = None) -> Any:
+    async def export(self, format: str = "json", path: str | None = None) -> Any:
         """
         Export all data points. Returns export location or data.
 
@@ -324,9 +331,13 @@ class DataStore:
                     "Install it with: pip install pyarrow"
                 )
             # Flatten vectors and metadata
-            table_data: Dict[str, list] = {
-                "id": [], "vector": [], "metadata": [],
-                "modality": [], "chart_id": [], "timestamp": [],
+            table_data: dict[str, list] = {
+                "id": [],
+                "vector": [],
+                "metadata": [],
+                "modality": [],
+                "chart_id": [],
+                "timestamp": [],
             }
             for r in records:
                 table_data["id"].append(r["id"])
@@ -347,7 +358,7 @@ class DataStore:
 
     async def import_data(
         self,
-        file_path: Union[str, Path],
+        file_path: str | Path,
         format: str = "json",
     ) -> int:
         """
@@ -360,16 +371,16 @@ class DataStore:
         if not file_path.exists():
             raise FileNotFoundError(f"Import file not found: {file_path}")
 
-        points: List[DataPoint] = []
+        points: list[DataPoint] = []
 
         if format == "json":
-            with open(file_path, "r") as f:
+            with open(file_path) as f:
                 records = json.load(f)
             for r in records:
                 points.append(DataPoint.from_dict(r))
 
         elif format == "csv":
-            with open(file_path, "r", newline="") as f:
+            with open(file_path, newline="") as f:
                 reader = csv.DictReader(f)
                 for row in reader:
                     row["vector"] = json.loads(row.get("vector", "[]"))
@@ -409,7 +420,7 @@ class DataStore:
             self._modality_index[dp.modality] = set()
         self._modality_index[dp.modality].add(dp.id)
 
-    def _remove_from_indices(self, point_id: str, data: Dict[str, Any]) -> None:
+    def _remove_from_indices(self, point_id: str, data: dict[str, Any]) -> None:
         """Remove data point from in-memory indices."""
         chart_id = data.get("chart_id")
         if chart_id and chart_id in self._chart_index:
@@ -422,12 +433,12 @@ class DataStore:
             if not self._modality_index[modality]:
                 del self._modality_index[modality]
 
-    def _get_candidate_ids(self, chart_id: Optional[str] = None) -> List[str]:
+    def _get_candidate_ids(self, chart_id: str | None = None) -> list[str]:
         """Get candidate point IDs for search."""
         if chart_id:
             return list(self._chart_index.get(chart_id, {}).keys())
         # All points from all charts
-        ids: List[str] = []
+        ids: list[str] = []
         for chart_vecs in self._chart_index.values():
             ids.extend(chart_vecs.keys())
         return ids
@@ -435,8 +446,9 @@ class DataStore:
     # ── distance computation ──────────────────────────────────
 
     @staticmethod
-    def _compute_distances(query: np.ndarray, matrix: np.ndarray,
-                           metric: str) -> np.ndarray:
+    def _compute_distances(
+        query: np.ndarray, matrix: np.ndarray, metric: str
+    ) -> np.ndarray:
         """Compute distances between query and each row of matrix."""
         if metric == "cosine":
             query_norm = np.linalg.norm(query)

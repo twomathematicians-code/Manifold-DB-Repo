@@ -28,35 +28,36 @@ import sys
 import time
 import uuid
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import numpy as np
 import typer
 from rich.console import Console
-from rich.live import Live
+from rich.json import JSON
 from rich.panel import Panel
-from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TimeElapsedColumn
+from rich.progress import (
+    BarColumn,
+    Progress,
+    SpinnerColumn,
+    TextColumn,
+    TimeElapsedColumn,
+)
 from rich.table import Table
-from rich.text import Text
-from rich.json import JSON as RichJSON
-from rich.status import Status
 from rich.tree import Tree
 
-from manifold_db.query.dsl import ManifoldQuery, MetricType, QueryType, QueryBuilder
+from manifold_db.atlas.atlas_manager import AtlasManager
+from manifold_db.query.dsl import ManifoldQuery, MetricType, QueryType
 from manifold_db.query.engine import QueryEngine, QueryResult
 from manifold_db.storage.backend import StorageManager
 from manifold_db.storage.data_store import DataPoint, DataStore
-from manifold_db.atlas.atlas_manager import AtlasManager
-from manifold_db.atlas.atlas_builder import AtlasBuilder
 from manifold_db.utils.config import (
     ManifoldConfig,
+    _config_to_dict,
+    default_config,
     load_config,
     save_config,
-    default_config,
     validate_config,
-    _config_to_dict,
 )
-from manifold_db.utils.logging import setup_logging
 
 __VERSION__ = "0.1.0"
 
@@ -110,6 +111,7 @@ app.add_typer(config_app, name="config")
 # Shared helpers
 # ═══════════════════════════════════════════════════════════════
 
+
 def _parse_vector(vec_str: str) -> np.ndarray:
     """Parse a string representation of a vector into a numpy array."""
     try:
@@ -121,13 +123,17 @@ def _parse_vector(vec_str: str) -> np.ndarray:
         pass
     # Try comma/space separated
     try:
-        vec = [float(x.strip()) for x in vec_str.strip("[]()").replace(",", " ").split() if x.strip()]
+        vec = [
+            float(x.strip())
+            for x in vec_str.strip("[]()").replace(",", " ").split()
+            if x.strip()
+        ]
         return np.asarray(vec, dtype=np.float64)
     except ValueError:
         raise typer.BadParameter(f"Cannot parse vector from: {vec_str}")
 
 
-def _parse_metadata(meta_str: Optional[str]) -> Dict[str, Any]:
+def _parse_metadata(meta_str: str | None) -> dict[str, Any]:
     """Parse a JSON metadata string into a dict."""
     if not meta_str:
         return {}
@@ -148,23 +154,26 @@ def _load_data_file(path: str) -> np.ndarray:
         return np.load(str(p))
     elif suffix == ".csv":
         import csv as csv_mod
+
         rows = []
-        with open(p, "r") as f:
+        with open(p) as f:
             reader = csv_mod.reader(f)
             for row in reader:
                 rows.append([float(x) for x in row])
         return np.array(rows, dtype=np.float64)
     elif suffix == ".json":
-        with open(p, "r") as f:
+        with open(p) as f:
             data = json.load(f)
         if isinstance(data, list):
             return np.array(data, dtype=np.float64)
         raise typer.BadParameter(f"Expected a list of vectors in JSON file: {path}")
     else:
-        raise typer.BadParameter(f"Unsupported file format: {suffix}. Use .npy, .csv, or .json")
+        raise typer.BadParameter(
+            f"Unsupported file format: {suffix}. Use .npy, .csv, or .json"
+        )
 
 
-def _init_components(config: Optional[ManifoldConfig] = None) -> tuple:
+def _init_components(config: ManifoldConfig | None = None) -> tuple:
     """Initialise and return (data_store, atlas_manager, query_engine)."""
     if config is None:
         config = default_config()
@@ -212,6 +221,7 @@ def _format_result_table(result: QueryResult, max_rows: int = 20) -> Table:
 # Version command
 # ═══════════════════════════════════════════════════════════════
 
+
 @app.command()
 def version():
     """Print the Manifold Database version and exit."""
@@ -228,26 +238,36 @@ def version():
 # Insert commands
 # ═══════════════════════════════════════════════════════════════
 
+
 @app.command()
 def insert(
-    data_file: Optional[str] = typer.Option(
-        None, "--data-file", "-f",
+    data_file: str | None = typer.Option(
+        None,
+        "--data-file",
+        "-f",
         help="Path to .npy/.csv/.json data file with vectors.",
     ),
-    vector: Optional[str] = typer.Option(
-        None, "--vector", "-v",
+    vector: str | None = typer.Option(
+        None,
+        "--vector",
+        "-v",
         help="Single vector as JSON array, e.g. '[0.1, 0.2, 0.3]'",
     ),
     modality: str = typer.Option(
-        "default", "--modality", "-m",
+        "default",
+        "--modality",
+        "-m",
         help="Modality tag for the data (text, image, audio, etc.).",
     ),
-    metadata: Optional[str] = typer.Option(
-        None, "--metadata",
+    metadata: str | None = typer.Option(
+        None,
+        "--metadata",
         help='JSON metadata string, e.g. \'{"key": "value"}\'',
     ),
-    chart_id: Optional[str] = typer.Option(
-        None, "--chart", "-c",
+    chart_id: str | None = typer.Option(
+        None,
+        "--chart",
+        "-c",
         help="Chart to assign the data to.",
     ),
 ):
@@ -296,7 +316,13 @@ def insert(
         async def _do_single():
             ds, _, _ = _init_components()
             point_id = str(uuid.uuid4())
-            dp = DataPoint(id=point_id, vector=vec, metadata=meta, modality=modality, chart_id=chart_id)
+            dp = DataPoint(
+                id=point_id,
+                vector=vec,
+                metadata=meta,
+                modality=modality,
+                chart_id=chart_id,
+            )
             await ds.insert(dp)
             await ds.close()
             return point_id
@@ -322,33 +348,45 @@ def insert(
 # Query commands
 # ═══════════════════════════════════════════════════════════════
 
+
 @app.command()
 def query(
     query_point: str = typer.Argument(
-        ..., help="Query vector as JSON array, e.g. '[0.1, 0.2, 0.3]'",
+        ...,
+        help="Query vector as JSON array, e.g. '[0.1, 0.2, 0.3]'",
     ),
     modality: str = typer.Option(
-        "default", "--modality", "-m",
+        "default",
+        "--modality",
+        "-m",
         help="Modality to search in.",
     ),
     k: int = typer.Option(
-        10, "--k", "-k",
+        10,
+        "--k",
+        "-k",
         help="Number of nearest neighbors to return.",
     ),
     metric: str = typer.Option(
-        "geodesic", "--metric",
+        "geodesic",
+        "--metric",
         help="Distance metric (geodesic, euclidean, cosine, wasserstein_riemannian).",
     ),
-    chart_id: Optional[str] = typer.Option(
-        None, "--chart", "-c",
+    chart_id: str | None = typer.Option(
+        None,
+        "--chart",
+        "-c",
         help="Chart to search in.",
     ),
     epsilon: float = typer.Option(
-        1.0, "--epsilon", "-e",
+        1.0,
+        "--epsilon",
+        "-e",
         help="Maximum distance for results.",
     ),
     explain: bool = typer.Option(
-        False, "--explain",
+        False,
+        "--explain",
         help="Show the execution plan instead of results.",
     ),
 ):
@@ -387,7 +425,9 @@ def query(
     plan, result = asyncio.run(_do_query())
 
     if explain:
-        console.print(Panel(plan.visualize(), title="Execution Plan", border_style="yellow"))
+        console.print(
+            Panel(plan.visualize(), title="Execution Plan", border_style="yellow")
+        )
     elif result:
         console.print(_format_result_table(result))
 
@@ -395,18 +435,24 @@ def query(
 @app.command("geodesic-query")
 def geodesic_query(
     center: str = typer.Argument(
-        ..., help="Center point as JSON array.",
+        ...,
+        help="Center point as JSON array.",
     ),
     epsilon: float = typer.Option(
-        0.5, "--epsilon", "-e",
+        0.5,
+        "--epsilon",
+        "-e",
         help="Radius of the geodesic ball.",
     ),
     metric_type: str = typer.Option(
-        "geodesic", "--metric-type",
+        "geodesic",
+        "--metric-type",
         help="Distance metric type.",
     ),
-    modality: Optional[str] = typer.Option(
-        None, "--modality", "-m",
+    modality: str | None = typer.Option(
+        None,
+        "--modality",
+        "-m",
         help="Filter by modality.",
     ),
 ):
@@ -438,18 +484,25 @@ def geodesic_query(
 @app.command("cross-modal")
 def cross_modal(
     source: str = typer.Option(
-        "text", "--source", "-s",
+        "text",
+        "--source",
+        "-s",
         help="Source modality.",
     ),
     target: str = typer.Option(
-        "image", "--target", "-t",
+        "image",
+        "--target",
+        "-t",
         help="Target modality.",
     ),
     query: str = typer.Argument(
-        ..., help="Query vector in source modality space.",
+        ...,
+        help="Query vector in source modality space.",
     ),
     k: int = typer.Option(
-        10, "--k", "-k",
+        10,
+        "--k",
+        "-k",
         help="Number of results to return.",
     ),
 ):
@@ -487,27 +540,39 @@ def cross_modal(
 # Atlas commands
 # ═══════════════════════════════════════════════════════════════
 
+
 @atlas_app.command("build")
 def atlas_build(
     data_file: str = typer.Argument(
-        ..., help="Path to .npy/.csv/.json data file.",
+        ...,
+        help="Path to .npy/.csv/.json data file.",
     ),
-    output: Optional[str] = typer.Option(
-        None, "--output", "-o",
+    output: str | None = typer.Option(
+        None,
+        "--output",
+        "-o",
         help="Output path for atlas JSON.",
     ),
-    modality: Optional[str] = typer.Option(
-        None, "--modality", "-m",
+    modality: str | None = typer.Option(
+        None,
+        "--modality",
+        "-m",
         help="Modality tag for the atlas.",
     ),
     overlap_ratio: float = typer.Option(
-        0.3, "--overlap", help="Overlap ratio between charts.",
+        0.3,
+        "--overlap",
+        help="Overlap ratio between charts.",
     ),
     min_chart_size: int = typer.Option(
-        50, "--min-size", help="Minimum chart size.",
+        50,
+        "--min-size",
+        help="Minimum chart size.",
     ),
     max_charts: int = typer.Option(
-        100, "--max-charts", help="Maximum number of charts.",
+        100,
+        "--max-charts",
+        help="Maximum number of charts.",
     ),
 ):
     """Build an atlas from a data file."""
@@ -533,7 +598,10 @@ def atlas_build(
     table.add_row("Charts", str(summary["n_charts"]))
     table.add_row("Transitions", str(summary["n_transitions"]))
     table.add_row("Dim Range", f"{summary['dim_range'][0]} – {summary['dim_range'][1]}")
-    table.add_row("Ambient Dim Range", f"{summary['ambient_dim_range'][0]} – {summary['ambient_dim_range'][1]}")
+    table.add_row(
+        "Ambient Dim Range",
+        f"{summary['ambient_dim_range'][0]} – {summary['ambient_dim_range'][1]}",
+    )
     console.print(table)
 
     # Save if output specified
@@ -550,7 +618,8 @@ def atlas_build(
 @atlas_app.command("info")
 def atlas_info(
     atlas_file: str = typer.Argument(
-        "atlas.json", help="Path to atlas JSON file.",
+        "atlas.json",
+        help="Path to atlas JSON file.",
     ),
 ):
     """Display information about an atlas."""
@@ -568,7 +637,9 @@ def atlas_info(
     tree.add(f"Transitions: {summary['n_transitions']}")
     dims_branch = tree.add("Dimensions")
     dims_branch.add(f"Intrinsic: {summary['dim_range'][0]} – {summary['dim_range'][1]}")
-    dims_branch.add(f"Ambient: {summary['ambient_dim_range'][0]} – {summary['ambient_dim_range'][1]}")
+    dims_branch.add(
+        f"Ambient: {summary['ambient_dim_range'][0]} – {summary['ambient_dim_range'][1]}"
+    )
 
     charts_branch = tree.add("Charts")
     for chart_info in summary.get("charts", []):
@@ -583,7 +654,8 @@ def atlas_info(
 @atlas_app.command("list-charts")
 def atlas_list_charts(
     atlas_file: str = typer.Argument(
-        "atlas.json", help="Path to atlas JSON file.",
+        "atlas.json",
+        help="Path to atlas JSON file.",
     ),
 ):
     """List all charts in an atlas."""
@@ -622,22 +694,35 @@ def atlas_list_charts(
 # Server commands
 # ═══════════════════════════════════════════════════════════════
 
+
 @server_app.command("start")
 def server_start(
     host: str = typer.Option(
-        "0.0.0.0", "--host", help="Bind host.",
+        "0.0.0.0",
+        "--host",
+        help="Bind host.",
     ),
     port: int = typer.Option(
-        8000, "--port", "-p", help="Bind port.",
+        8000,
+        "--port",
+        "-p",
+        help="Bind port.",
     ),
     workers: int = typer.Option(
-        1, "--workers", "-w", help="Number of uvicorn workers.",
+        1,
+        "--workers",
+        "-w",
+        help="Number of uvicorn workers.",
     ),
     reload: bool = typer.Option(
-        False, "--reload", help="Enable auto-reload for development.",
+        False,
+        "--reload",
+        help="Enable auto-reload for development.",
     ),
-    config_file: Optional[str] = typer.Option(
-        None, "--config", help="Path to configuration YAML file.",
+    config_file: str | None = typer.Option(
+        None,
+        "--config",
+        help="Path to configuration YAML file.",
     ),
 ):
     """Start the Manifold DB REST API server."""
@@ -678,7 +763,10 @@ def server_start(
 @server_app.command("stop")
 def server_stop(
     port: int = typer.Option(
-        8000, "--port", "-p", help="Port the server is running on.",
+        8000,
+        "--port",
+        "-p",
+        help="Port the server is running on.",
     ),
 ):
     """Stop a running Manifold DB server."""
@@ -687,7 +775,9 @@ def server_stop(
         # Find and kill the uvicorn process
         result = subprocess.run(
             ["lsof", "-t", "-i", f":{port}"],
-            capture_output=True, text=True, timeout=5,
+            capture_output=True,
+            text=True,
+            timeout=5,
         )
         if result.returncode == 0 and result.stdout.strip():
             pids = result.stdout.strip().split("\n")
@@ -712,10 +802,14 @@ def server_stop(
 # Database commands
 # ═══════════════════════════════════════════════════════════════
 
+
 @db_app.command("init")
 def db_init(
-    config: Optional[str] = typer.Option(
-        None, "--config", "-c", help="Path to config YAML file.",
+    config: str | None = typer.Option(
+        None,
+        "--config",
+        "-c",
+        help="Path to config YAML file.",
     ),
 ):
     """Initialise a new manifold database."""
@@ -754,8 +848,11 @@ def db_init(
 
 @db_app.command("stats")
 def db_stats(
-    config: Optional[str] = typer.Option(
-        None, "--config", "-c", help="Path to config YAML file.",
+    config: str | None = typer.Option(
+        None,
+        "--config",
+        "-c",
+        help="Path to config YAML file.",
     ),
 ):
     """Display database statistics."""
@@ -782,7 +879,9 @@ def db_stats(
     table.add_column("Value")
     table.add_row("Version", __VERSION__)
     table.add_row("Total Points", str(ds_stats.get("total_points", 0)))
-    table.add_row("Modalities", ", ".join(ds_stats.get("modalities_list", [])) or "(none)")
+    table.add_row(
+        "Modalities", ", ".join(ds_stats.get("modalities_list", [])) or "(none)"
+    )
     table.add_row("Charts", str(am_stats.get("n_charts", 0)))
     table.add_row("Transitions", str(am_stats.get("n_transitions", 0)))
     table.add_row("Storage Backend", cfg.storage.backend_type)
@@ -802,10 +901,14 @@ def db_stats(
 @db_app.command("save")
 def db_save(
     path: str = typer.Argument(
-        "./manifold_data", help="Directory to save data to.",
+        "./manifold_data",
+        help="Directory to save data to.",
     ),
-    config: Optional[str] = typer.Option(
-        None, "--config", "-c", help="Path to config YAML file.",
+    config: str | None = typer.Option(
+        None,
+        "--config",
+        "-c",
+        help="Path to config YAML file.",
     ),
 ):
     """Save the database to disk."""
@@ -843,10 +946,14 @@ def db_save(
 @db_app.command("load")
 def db_load(
     path: str = typer.Argument(
-        "./manifold_data", help="Directory to load data from.",
+        "./manifold_data",
+        help="Directory to load data from.",
     ),
-    config: Optional[str] = typer.Option(
-        None, "--config", "-c", help="Path to config YAML file.",
+    config: str | None = typer.Option(
+        None,
+        "--config",
+        "-c",
+        help="Path to config YAML file.",
     ),
 ):
     """Load the database from disk."""
@@ -894,10 +1001,14 @@ def db_load(
 @db_app.command("reset")
 def db_reset(
     confirm: bool = typer.Option(
-        False, "--confirm", help="Skip confirmation prompt.",
+        False,
+        "--confirm",
+        help="Skip confirmation prompt.",
     ),
     path: str = typer.Option(
-        "./manifold_data", "--path", help="Data directory to reset.",
+        "./manifold_data",
+        "--path",
+        help="Data directory to reset.",
     ),
 ):
     """Reset the database by deleting all stored data."""
@@ -912,6 +1023,7 @@ def db_reset(
     storage_path = Path(path)
     if storage_path.exists():
         import shutil
+
         shutil.rmtree(storage_path)
         console.print(f"[green]Removed: {storage_path}[/green]")
     else:
@@ -924,10 +1036,14 @@ def db_reset(
 # Config commands (inline — extended in config_commands.py)
 # ═══════════════════════════════════════════════════════════════
 
+
 @config_app.command("show")
 def config_show(
-    config: Optional[str] = typer.Option(
-        None, "--config", "-c", help="Path to config file. Uses defaults if not provided.",
+    config: str | None = typer.Option(
+        None,
+        "--config",
+        "-c",
+        help="Path to config file. Uses defaults if not provided.",
     ),
 ):
     """Display the current configuration."""
@@ -940,13 +1056,16 @@ def config_show(
             raise typer.Exit(1)
 
     data = _config_to_dict(cfg)
-    console.print(RichJSON(json.dumps(data, indent=2)))
+    console.print(JSON(json.dumps(data, indent=2)))
 
 
 @config_app.command("validate")
 def config_validate(
-    config: Optional[str] = typer.Option(
-        None, "--config", "-c", help="Path to config file to validate.",
+    config: str | None = typer.Option(
+        None,
+        "--config",
+        "-c",
+        help="Path to config file to validate.",
     ),
 ):
     """Validate a configuration file."""
@@ -962,7 +1081,7 @@ def config_validate(
         validate_config(cfg)
         console.print("[bold green]Configuration is valid.[/bold green]")
     except ValueError as exc:
-        console.print(f"[bold red]Configuration validation failed:[/bold red]")
+        console.print("[bold red]Configuration validation failed:[/bold red]")
         console.print(str(exc))
         raise typer.Exit(1)
 
@@ -970,13 +1089,18 @@ def config_validate(
 @config_app.command("set")
 def config_set(
     key: str = typer.Argument(
-        ..., help="Config key in section.key format, e.g. 'server.port'.",
+        ...,
+        help="Config key in section.key format, e.g. 'server.port'.",
     ),
     value: str = typer.Argument(
-        ..., help="Value to set.",
+        ...,
+        help="Value to set.",
     ),
-    config_file: Optional[str] = typer.Option(
-        None, "--config", "-c", help="Config file to modify. Creates default if not provided.",
+    config_file: str | None = typer.Option(
+        None,
+        "--config",
+        "-c",
+        help="Config file to modify. Creates default if not provided.",
     ),
 ):
     """Set a configuration value."""
@@ -1009,7 +1133,9 @@ def config_set(
     }
 
     if section_name not in sections:
-        console.print(f"[red]Unknown section: {section_name}. Valid: {list(sections.keys())}[/red]")
+        console.print(
+            f"[red]Unknown section: {section_name}. Valid: {list(sections.keys())}[/red]"
+        )
         raise typer.Exit(1)
 
     section_obj = sections[section_name]
@@ -1053,7 +1179,8 @@ def config_set(
 @config_app.command("generate-defaults")
 def config_generate(
     output: str = typer.Argument(
-        "config.yaml", help="Output path for default config.",
+        "config.yaml",
+        help="Output path for default config.",
     ),
 ):
     """Generate a default configuration file."""
@@ -1066,19 +1193,32 @@ def config_generate(
 # Benchmark command
 # ═══════════════════════════════════════════════════════════════
 
+
 @app.command()
 def benchmark(
     data_size: int = typer.Option(
-        10000, "--data-size", "-n", help="Number of data points to generate.",
+        10000,
+        "--data-size",
+        "-n",
+        help="Number of data points to generate.",
     ),
     queries: int = typer.Option(
-        100, "--queries", "-q", help="Number of queries to execute.",
+        100,
+        "--queries",
+        "-q",
+        help="Number of queries to execute.",
     ),
     dimension: int = typer.Option(
-        128, "--dimension", "-d", help="Dimensionality of embeddings.",
+        128,
+        "--dimension",
+        "-d",
+        help="Dimensionality of embeddings.",
     ),
-    output: Optional[str] = typer.Option(
-        None, "--output", "-o", help="Output file for benchmark results (JSON).",
+    output: str | None = typer.Option(
+        None,
+        "--output",
+        "-o",
+        help="Output file for benchmark results (JSON).",
     ),
 ):
     """Run a performance benchmark on the manifold database."""
@@ -1109,14 +1249,17 @@ def benchmark(
         ]
         t0 = time.perf_counter()
         with Progress(
-            SpinnerColumn(), TextColumn("[progress.description]{task.description}"),
-            BarColumn(), TimeElapsedColumn(), console=console,
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            BarColumn(),
+            TimeElapsedColumn(),
+            console=console,
         ) as progress:
             task = progress.add_task("Inserting...", total=data_size)
             # Batch insert in chunks
             chunk_size = 1000
             for i in range(0, data_size, chunk_size):
-                chunk = points[i:i + chunk_size]
+                chunk = points[i : i + chunk_size]
                 await ds.batch_insert(chunk)
                 progress.update(task, completed=min(i + chunk_size, data_size))
         insert_time = time.perf_counter() - t0
@@ -1132,13 +1275,16 @@ def benchmark(
         query_times = []
 
         with Progress(
-            SpinnerColumn(), TextColumn("[progress.description]{task.description}"),
-            BarColumn(), TimeElapsedColumn(), console=console,
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            BarColumn(),
+            TimeElapsedColumn(),
+            console=console,
         ) as progress:
             task = progress.add_task("Querying...", total=queries)
             for i in range(queries):
                 t0 = time.perf_counter()
-                results = await ds.search(
+                await ds.search(
                     query_vector=query_points[i],
                     k=10,
                     metric="euclidean",
@@ -1178,10 +1324,12 @@ def benchmark(
     table.add_column("Metric", style="bold")
     table.add_column("Value", justify="right")
     table.add_row("Data Size", f"{results['data_size']:,}")
-    table.add_row("Dimension", str(results['dimension']))
+    table.add_row("Dimension", str(results["dimension"]))
     table.add_row("Num Queries", f"{results['num_queries']:,}")
     table.add_row("", "")
-    table.add_row("[bold]Insert Throughput[/bold]", f"{results['insert_throughput']:,.1f} pts/s")
+    table.add_row(
+        "[bold]Insert Throughput[/bold]", f"{results['insert_throughput']:,.1f} pts/s"
+    )
     table.add_row("[bold]Insert Time[/bold]", f"{results['insert_time_s']:.4f}s")
     table.add_row("", "")
     table.add_row("[bold]Query Mean[/bold]", f"{results['query_mean_ms']:.4f}ms")
@@ -1202,6 +1350,7 @@ def benchmark(
 # ═══════════════════════════════════════════════════════════════
 # Entry point
 # ═══════════════════════════════════════════════════════════════
+
 
 def main():
     """Entry point for ``python -m manifold_db.cli``."""

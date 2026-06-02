@@ -12,14 +12,15 @@ GPU-accelerated batch solving via PyTorch.
 
 from __future__ import annotations
 
+import importlib.util
 import logging
-from dataclasses import dataclass, field
+from collections.abc import Callable
+from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Callable, Optional
+from typing import Any
 
 import numpy as np
 from scipy.integrate import solve_ivp
-from scipy.optimize import minimize
 
 logger = logging.getLogger(__name__)
 
@@ -28,8 +29,10 @@ logger = logging.getLogger(__name__)
 # Data types
 # ---------------------------------------------------------------------------
 
+
 class IntegrationMethod(Enum):
     """Available ODE integration methods for geodesic solving."""
+
     EULER = "euler"
     RK4 = "rk4"
     RK45 = "rk45"
@@ -38,9 +41,10 @@ class IntegrationMethod(Enum):
 @dataclass
 class GeodesicResult:
     """Result container for a single geodesic solve."""
-    trajectory: np.ndarray          # (n_steps, dim) positions
-    velocities: np.ndarray          # (n_steps, dim) velocities
-    times: np.ndarray               # (n_steps,) parameter values
+
+    trajectory: np.ndarray  # (n_steps, dim) positions
+    velocities: np.ndarray  # (n_steps, dim) velocities
+    times: np.ndarray  # (n_steps,) parameter values
     success: bool = True
     message: str = ""
 
@@ -48,6 +52,7 @@ class GeodesicResult:
 # ---------------------------------------------------------------------------
 # Christoffel symbols
 # ---------------------------------------------------------------------------
+
 
 def compute_christoffel_symbols(
     metric_tensor: np.ndarray,
@@ -85,14 +90,14 @@ def compute_christoffel_symbols(
         for j in range(n):
             for k in range(n):
                 s = 0.0
-                for l in range(n):
+                for idx_l in range(n):
                     # ∂g_{lj}/∂x^k  +  ∂g_{lk}/∂x^j  −  ∂g_{jk}/∂x^l
                     term = (
-                        derivatives[l, j, k]
-                        + derivatives[l, k, j]
-                        - derivatives[j, k, l]
+                        derivatives[idx_l, j, k]
+                        + derivatives[idx_l, k, j]
+                        - derivatives[j, k, idx_l]
                     )
-                    s += g_inv[i, l] * term
+                    s += g_inv[i, idx_l] * term
                 gamma[i, j, k] = 0.5 * s
     return gamma
 
@@ -100,6 +105,7 @@ def compute_christoffel_symbols(
 # ---------------------------------------------------------------------------
 # Geodesic Solver
 # ---------------------------------------------------------------------------
+
 
 class GeodesicSolver:
     """
@@ -120,8 +126,8 @@ class GeodesicSolver:
     def __init__(
         self,
         metric_fn: Callable[[np.ndarray], np.ndarray],
-        christoffel_fn: Optional[Callable[[np.ndarray], np.ndarray]] = None,
-        dim: Optional[int] = None,
+        christoffel_fn: Callable[[np.ndarray], np.ndarray] | None = None,
+        dim: int | None = None,
     ) -> None:
         self.metric_fn = metric_fn
         self.christoffel_fn = christoffel_fn
@@ -145,7 +151,9 @@ class GeodesicSolver:
             x_minus = x.copy()
             x_plus[k] += self._eps
             x_minus[k] -= self._eps
-            dg[:, :, k] = (self.metric_fn(x_plus) - self.metric_fn(x_minus)) / (2.0 * self._eps)
+            dg[:, :, k] = (self.metric_fn(x_plus) - self.metric_fn(x_minus)) / (
+                2.0 * self._eps
+            )
         return compute_christoffel_symbols(g0, dg)
 
     def _geodesic_rhs(self, t: float, y: np.ndarray) -> np.ndarray:
@@ -215,7 +223,12 @@ class GeodesicSolver:
             return self._solve_rk45(y0, t_span, dt, n, **kwargs)
 
     def _solve_euler(
-        self, y0: np.ndarray, t0: float, t1: float, dt: float, n: int,
+        self,
+        y0: np.ndarray,
+        t0: float,
+        t1: float,
+        dt: float,
+        n: int,
     ) -> GeodesicResult:
         steps = max(1, int(np.ceil(abs(t1 - t0) / dt)))
         dt_actual = (t1 - t0) / steps
@@ -233,7 +246,12 @@ class GeodesicSolver:
         return GeodesicResult(trajectory, velocities, times, True)
 
     def _solve_rk4(
-        self, y0: np.ndarray, t0: float, t1: float, dt: float, n: int,
+        self,
+        y0: np.ndarray,
+        t0: float,
+        t1: float,
+        dt: float,
+        n: int,
     ) -> GeodesicResult:
         steps = max(1, int(np.ceil(abs(t1 - t0) / dt)))
         dt_actual = (t1 - t0) / steps
@@ -262,7 +280,9 @@ class GeodesicSolver:
         n: int,
         **kwargs: Any,
     ) -> GeodesicResult:
-        t_eval = np.linspace(t_span[0], t_span[1], max(2, int(abs(t_span[1] - t_span[0]) / dt) + 1))
+        t_eval = np.linspace(
+            t_span[0], t_span[1], max(2, int(abs(t_span[1] - t_span[0]) / dt) + 1)
+        )
         sol = solve_ivp(
             self._geodesic_rhs,
             t_span,
@@ -322,7 +342,9 @@ class GeodesicSolver:
             speed_sq = vel @ metric_at_a @ vel
             t_end = np.linalg.norm(diff) / max(np.sqrt(speed_sq), 1e-12) * 1.5
 
-            result = self.solve_geodesic(point_a, vel, (0.0, t_end), method="rk45", dt=0.02)
+            result = self.solve_geodesic(
+                point_a, vel, (0.0, t_end), method="rk45", dt=0.02
+            )
             if not result.success:
                 continue
 
@@ -403,7 +425,9 @@ class GeodesicSolver:
             # Sample radius with volume correction: r ∝ radius * u^{1/n}
             r = radius * (np.random.random() ** (1.0 / n))
 
-            result = self.solve_geodesic(center, tangent * r, (0.0, t_max), method="rk45", dt=0.05)
+            result = self.solve_geodesic(
+                center, tangent * r, (0.0, t_max), method="rk45", dt=0.05
+            )
             if not result.success:
                 continue
 
@@ -427,7 +451,7 @@ class GeodesicSolver:
         self,
         point_a: np.ndarray,
         point_b: np.ndarray,
-        graph_approx: Optional[Any] = None,
+        graph_approx: Any | None = None,
         n_intermediate: int = 50,
     ) -> np.ndarray:
         """
@@ -464,12 +488,20 @@ class GeodesicSolver:
         return self._refine_path(init_path)
 
     def _linear_interpolation(
-        self, a: np.ndarray, b: np.ndarray, n: int,
+        self,
+        a: np.ndarray,
+        b: np.ndarray,
+        n: int,
     ) -> np.ndarray:
         ts = np.linspace(0, 1, n + 2)
-        return a[np.newaxis, :] * (1 - ts[:, np.newaxis]) + b[np.newaxis, :] * ts[:, np.newaxis]
+        return (
+            a[np.newaxis, :] * (1 - ts[:, np.newaxis])
+            + b[np.newaxis, :] * ts[:, np.newaxis]
+        )
 
-    def _refine_path(self, path: np.ndarray, iterations: int = 100, lr: float = 0.01) -> np.ndarray:
+    def _refine_path(
+        self, path: np.ndarray, iterations: int = 100, lr: float = 0.01
+    ) -> np.ndarray:
         """
         Refine a path by gradient descent on the total Riemannian energy.
 
@@ -524,16 +556,16 @@ class GeodesicSolver:
         np.ndarray, shape (B, S, n)
             Trajectory for each initial condition.  *S* = number of time steps.
         """
-        try:
-            import torch
-            _has_torch = True
-        except ImportError:
-            _has_torch = False
+        _has_torch = importlib.util.find_spec("torch") is not None
 
         if _has_torch and method.lower() == "rk4":
-            return self._solve_batch_torch(initial_points, initial_velocities, t_span, dt)
+            return self._solve_batch_torch(
+                initial_points, initial_velocities, t_span, dt
+            )
         else:
-            return self._solve_batch_numpy(initial_points, initial_velocities, t_span, dt, method)
+            return self._solve_batch_numpy(
+                initial_points, initial_velocities, t_span, dt, method
+            )
 
     def _solve_batch_torch(
         self,
@@ -546,7 +578,9 @@ class GeodesicSolver:
         import torch
 
         pts = torch.tensor(points, dtype=torch.float64, device=self._get_torch_device())
-        vels = torch.tensor(velocities, dtype=torch.float64, device=self._get_torch_device())
+        vels = torch.tensor(
+            velocities, dtype=torch.float64, device=self._get_torch_device()
+        )
         B, n = pts.shape
 
         steps = max(1, int(np.ceil(abs(t_span[1] - t_span[0]) / dt)))
@@ -569,10 +603,14 @@ class GeodesicSolver:
             k1_x = vel
 
             k2_x = vel + 0.5 * dt_t * k1_v
-            k2_v = self._batch_accel_torch(pos + 0.5 * dt_t * k1_x, vel + 0.5 * dt_t * k1_v)
+            k2_v = self._batch_accel_torch(
+                pos + 0.5 * dt_t * k1_x, vel + 0.5 * dt_t * k1_v
+            )
 
             k3_x = vel + 0.5 * dt_t * k2_v
-            k3_v = self._batch_accel_torch(pos + 0.5 * dt_t * k2_x, vel + 0.5 * dt_t * k2_v)
+            k3_v = self._batch_accel_torch(
+                pos + 0.5 * dt_t * k2_x, vel + 0.5 * dt_t * k2_v
+            )
 
             k4_x = vel + dt_t * k3_v
             k4_v = self._batch_accel_torch(pos + dt_t * k3_x, vel + dt_t * k3_v)
@@ -588,12 +626,15 @@ class GeodesicSolver:
         import torch
 
         B, n = pos.shape
-        eps = self._eps
-        gamma_batch = torch.zeros(B, n, n, n, dtype=torch.float64, device=self._get_torch_device())
+        gamma_batch = torch.zeros(
+            B, n, n, n, dtype=torch.float64, device=self._get_torch_device()
+        )
         for idx in range(B):
             x_np = pos[idx].detach().cpu().numpy()
             g = self._get_christoffel(x_np)
-            gamma_batch[idx] = torch.tensor(g, dtype=torch.float64, device=self._get_torch_device())
+            gamma_batch[idx] = torch.tensor(
+                g, dtype=torch.float64, device=self._get_torch_device()
+            )
         return gamma_batch
 
     def _batch_accel_torch(self, pos: Any, vel: Any) -> Any:
@@ -612,6 +653,7 @@ class GeodesicSolver:
     def _get_torch_device(self) -> Any:
         try:
             import torch
+
             return torch.device("cuda" if torch.cuda.is_available() else "cpu")
         except ImportError:
             return "cpu"

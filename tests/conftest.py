@@ -18,6 +18,7 @@ def _set_random_seed():
 
 # ---------- Synthetic datasets ----------
 
+
 @pytest.fixture
 def random_data():
     """1000 points in 50-D ambient space."""
@@ -54,14 +55,13 @@ def multi_modal_data():
     image_data = np.random.randn(300, 50).astype(np.float64) + 2.0
     # Overlap region: 50 points that blend both
     overlap_data = np.random.randn(50, 50).astype(np.float64) + 1.0
-    modality_labels = (
-        ["text"] * 300 + ["image"] * 300 + ["overlap"] * 50
-    )
+    modality_labels = ["text"] * 300 + ["image"] * 300 + ["overlap"] * 50
     combined = np.vstack([text_data, image_data, overlap_data])
     return combined, modality_labels
 
 
 # ---------- Chart fixture ----------
+
 
 @pytest.fixture
 def simple_chart():
@@ -91,6 +91,7 @@ def chart_with_data(random_data):
 
 # ---------- Tangent-space fixture ----------
 
+
 @pytest.fixture
 def tangent_space():
     """TangentSpace built from a small cluster of points."""
@@ -103,6 +104,7 @@ def tangent_space():
 
 # ---------- Storage fixtures ----------
 
+
 @pytest.fixture
 def temp_storage_dir():
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -114,10 +116,12 @@ def sample_data_points():
     """A small list of DataPoint-like dicts."""
     pts = []
     for i in range(20):
-        pts.append({
-            "id": f"pt_{i}",
-            "vector": np.random.randn(10).astype(np.float64),
-            "metadata": {"source": "test"},
-            "modality": "default",
-        })
+        pts.append(
+            {
+                "id": f"pt_{i}",
+                "vector": np.random.randn(10).astype(np.float64),
+                "metadata": {"source": "test"},
+                "modality": "default",
+            }
+        )
     return pts

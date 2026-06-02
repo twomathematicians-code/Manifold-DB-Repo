@@ -14,11 +14,11 @@ All computations use NumPy/SciPy with vectorised operations for speed.
 from __future__ import annotations
 
 import logging
-from typing import Any, Callable, Optional
+from collections.abc import Callable
+from typing import Any
 
 import numpy as np
 from scipy.optimize import minimize
-from scipy.special import logsumexp
 
 logger = logging.getLogger(__name__)
 
@@ -26,6 +26,7 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # Riemannian Distance
 # ---------------------------------------------------------------------------
+
 
 class RiemannianDistance:
     """
@@ -43,9 +44,9 @@ class RiemannianDistance:
 
     def __init__(
         self,
-        metric_tensor_fn: Optional[Callable[[np.ndarray], np.ndarray]] = None,
-        christoffel_fn: Optional[Callable[[np.ndarray], np.ndarray]] = None,
-        tangent_space: Optional[np.ndarray] = None,
+        metric_tensor_fn: Callable[[np.ndarray], np.ndarray] | None = None,
+        christoffel_fn: Callable[[np.ndarray], np.ndarray] | None = None,
+        tangent_space: np.ndarray | None = None,
     ) -> None:
         self.metric_tensor_fn = metric_tensor_fn
         self.christoffel_fn = christoffel_fn
@@ -110,17 +111,22 @@ class RiemannianDistance:
         init = np.zeros(n_waypoints * n)
         for i in range(n_waypoints):
             t = (i + 1) / (n_waypoints + 1)
-            init[i * n:(i + 1) * n] = p + t * (q - p)
+            init[i * n : (i + 1) * n] = p + t * (q - p)
 
-        res = minimize(_energy, init, jac=_energy_grad, method="L-BFGS-B",
-                       options={"maxiter": 200, "ftol": 1e-12})
+        res = minimize(
+            _energy,
+            init,
+            jac=_energy_grad,
+            method="L-BFGS-B",
+            options={"maxiter": 200, "ftol": 1e-12},
+        )
         return float(np.sqrt(res.fun))
 
     def tangent_approx_distance(
         self,
         p: np.ndarray,
         q: np.ndarray,
-        tangent_space: Optional[np.ndarray] = None,
+        tangent_space: np.ndarray | None = None,
     ) -> float:
         """
         Approximate distance using the tangent-space representation.
@@ -172,8 +178,10 @@ class RiemannianDistance:
             Curvature-corrected distance.
         """
         if self.metric_tensor_fn is None or self.christoffel_fn is None:
-            logger.warning("Need metric_fn and christoffel_fn for curvature correction; "
-                           "falling back to tangent approximation.")
+            logger.warning(
+                "Need metric_fn and christoffel_fn for curvature correction; "
+                "falling back to tangent approximation."
+            )
             return self.tangent_approx_distance(p, q)
 
         mid = 0.5 * (p + q)
@@ -199,10 +207,16 @@ class RiemannianDistance:
         for i in range(n):
             for j in range(n):
                 for k in range(n):
-                    for l in range(n):
-                        correction_sum += R[i, j, k, l] * v_contra[i] * v_contra[j] * v_contra[k] * v_contra[l]
+                    for idx_l in range(n):
+                        correction_sum += (
+                            R[i, j, k, idx_l]
+                            * v_contra[i]
+                            * v_contra[j]
+                            * v_contra[k]
+                            * v_contra[idx_l]
+                        )
 
-        correction = 1.0 - (1.0 / 12.0) * correction_sum / (v_norm ** 4)
+        correction = 1.0 - (1.0 / 12.0) * correction_sum / (v_norm**4)
         correction = max(correction, 0.5)  # clamp to avoid negative distances
         return d0 * correction
 
@@ -220,36 +234,47 @@ class RiemannianDistance:
 
         gamma_center = self.christoffel_fn(x)
         g = self.metric_tensor_fn(x)
-        g_inv = np.linalg.inv(g)
-
         for i in range(n):
             for j in range(n):
                 for k in range(n):
-                    for l in range(n):
-                        x_plus_l = x.copy(); x_plus_l[l] += eps
-                        x_minus_l = x.copy(); x_minus_l[l] -= eps
-                        x_plus_k = x.copy(); x_plus_k[k] += eps
-                        x_minus_k = x.copy(); x_minus_k[k] -= eps
+                    for idx_l in range(n):
+                        x_plus_l = x.copy()
+                        x_plus_l[idx_l] += eps
+                        x_minus_l = x.copy()
+                        x_minus_l[idx_l] -= eps
+                        x_plus_k = x.copy()
+                        x_plus_k[k] += eps
+                        x_minus_k = x.copy()
+                        x_minus_k[k] -= eps
 
-                        dg_jk_l = (self.christoffel_fn(x_plus_l)[i, j, k]
-                                   - self.christoffel_fn(x_minus_l)[i, j, k]) / (2 * eps)
-                        dg_jl_k = (self.christoffel_fn(x_plus_k)[i, j, l]
-                                   - self.christoffel_fn(x_minus_k)[i, j, l]) / (2 * eps)
+                        dg_jk_l = (
+                            self.christoffel_fn(x_plus_l)[i, j, k]
+                            - self.christoffel_fn(x_minus_l)[i, j, k]
+                        ) / (2 * eps)
+                        dg_jl_k = (
+                            self.christoffel_fn(x_plus_k)[i, j, idx_l]
+                            - self.christoffel_fn(x_minus_k)[i, j, idx_l]
+                        ) / (2 * eps)
 
                         R_upper = dg_jk_l - dg_jl_k
                         for m in range(n):
-                            R_upper += (gamma_center[i, m, k] * gamma_center[m, j, l]
-                                        - gamma_center[i, m, l] * gamma_center[m, j, k])
+                            R_upper += (
+                                gamma_center[i, m, k] * gamma_center[m, j, l]
+                                - gamma_center[i, m, l] * gamma_center[m, j, k]
+                            )
 
                         # Lower the first index: R_{ijkl} = g_{im} R^m_{jkl}
                         for m in range(n):
-                            R[i, j, k, l] += g[i, m] * R_upper / n  # average for stability
+                            R[i, j, k, l] += (
+                                g[i, m] * R_upper / n
+                            )  # average for stability
         return R
 
 
 # ---------------------------------------------------------------------------
 # Wasserstein Distance (Entropy-Regularised Optimal Transport)
 # ---------------------------------------------------------------------------
+
 
 class WassersteinDistance:
     """
@@ -283,7 +308,7 @@ class WassersteinDistance:
         mu: np.ndarray,
         nu: np.ndarray,
         cost_matrix: np.ndarray,
-        reg: Optional[float] = None,
+        reg: float | None = None,
     ) -> float:
         """
         Entropy-regularised optimal transport distance (Sinkhorn).
@@ -309,7 +334,9 @@ class WassersteinDistance:
 
         # K = exp(-C / eps)
         K = np.exp(-cost_matrix / eps)
-        K_tilde = K / (mu[:, np.newaxis] * nu[np.newaxis, :]).max()  # numerical stability
+        K_tilde = (
+            K / (mu[:, np.newaxis] * nu[np.newaxis, :]).max()
+        )  # numerical stability
 
         # Dual variables
         u = np.ones(m)
@@ -340,7 +367,11 @@ class WassersteinDistance:
 
         # Sinkhorn distance = <transport, cost>
         distance = float(np.sum(transport * cost_matrix))
-        logger.debug("Sinkhorn converged in %d iterations, distance=%.6f", iteration + 1, distance)
+        logger.debug(
+            "Sinkhorn converged in %d iterations, distance=%.6f",
+            iteration + 1,
+            distance,
+        )
         return distance
 
     def batch_sinkhorn_distance(
@@ -365,13 +396,16 @@ class WassersteinDistance:
         B = len(mu_batch)
         distances = np.zeros(B)
         for b in range(B):
-            distances[b] = self.sinkhorn_distance(mu_batch[b], nu_batch[b], cost_matrices[b])
+            distances[b] = self.sinkhorn_distance(
+                mu_batch[b], nu_batch[b], cost_matrices[b]
+            )
         return distances
 
 
 # ---------------------------------------------------------------------------
 # Fisher-Rao Distance
 # ---------------------------------------------------------------------------
+
 
 class FisherRaoDistance:
     """
@@ -418,7 +452,7 @@ class FisherRaoDistance:
     def fisher_rao_metric_tensor(
         self,
         distribution: np.ndarray,
-        param_indices: Optional[tuple[int, int]] = None,
+        param_indices: tuple[int, int] | None = None,
     ) -> np.ndarray:
         """
         Compute the Fisher information matrix for a parametric family.
@@ -479,6 +513,7 @@ class FisherRaoDistance:
 # Distance Computer (unified interface)
 # ---------------------------------------------------------------------------
 
+
 class DistanceComputer:
     """
     Unified interface for computing various distances on a Riemannian manifold.
@@ -493,8 +528,8 @@ class DistanceComputer:
 
     def __init__(
         self,
-        metric_tensor_fn: Optional[Callable[[np.ndarray], np.ndarray]] = None,
-        christoffel_fn: Optional[Callable[[np.ndarray], np.ndarray]] = None,
+        metric_tensor_fn: Callable[[np.ndarray], np.ndarray] | None = None,
+        christoffel_fn: Callable[[np.ndarray], np.ndarray] | None = None,
     ) -> None:
         self.metric_tensor_fn = metric_tensor_fn
         self.christoffel_fn = christoffel_fn
@@ -531,7 +566,9 @@ class DistanceComputer:
         if metric_type == "geodesic":
             return self._riemannian.geodesic_distance(p, q)
         elif metric_type == "tangent":
-            return self._riemannian.tangent_approx_distance(p, q, kwargs.get("tangent_space"))
+            return self._riemannian.tangent_approx_distance(
+                p, q, kwargs.get("tangent_space")
+            )
         elif metric_type == "curvature":
             return self._riemannian.curvature_corrected_distance(p, q)
         elif metric_type == "wasserstein":
