@@ -13,12 +13,13 @@ retraction, and batch GPU-accelerated variants via PyTorch.
 
 from __future__ import annotations
 
+import importlib.util
 import logging
-from typing import Any, Callable, Optional
+from collections.abc import Callable
+from typing import Any
 
 import numpy as np
 from scipy.integrate import solve_ivp
-from scipy.optimize import minimize
 
 logger = logging.getLogger(__name__)
 
@@ -26,6 +27,7 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # Exponential Map
 # ---------------------------------------------------------------------------
+
 
 class ExponentialMap:
     """
@@ -43,7 +45,7 @@ class ExponentialMap:
     def __init__(
         self,
         metric_fn: Callable[[np.ndarray], np.ndarray],
-        christoffel_fn: Optional[Callable[[np.ndarray], np.ndarray]] = None,
+        christoffel_fn: Callable[[np.ndarray], np.ndarray] | None = None,
     ) -> None:
         self.metric_fn = metric_fn
         self.christoffel_fn = christoffel_fn
@@ -59,16 +61,20 @@ class ExponentialMap:
         g_inv = np.linalg.inv(g0)
         dg = np.zeros((n, n, n))
         for k in range(n):
-            xp = x.copy(); xp[k] += self._eps
-            xm = x.copy(); xm[k] -= self._eps
+            xp = x.copy()
+            xp[k] += self._eps
+            xm = x.copy()
+            xm[k] -= self._eps
             dg[:, :, k] = (self.metric_fn(xp) - self.metric_fn(xm)) / (2.0 * self._eps)
         gamma = np.zeros((n, n, n))
         for i in range(n):
             for j in range(n):
                 for k in range(n):
                     s = 0.0
-                    for l in range(n):
-                        s += g_inv[i, l] * (dg[l, j, k] + dg[l, k, j] - dg[j, k, l])
+                    for idx_l in range(n):
+                        s += g_inv[i, idx_l] * (
+                            dg[idx_l, j, k] + dg[idx_l, k, j] - dg[j, k, idx_l]
+                        )
                     gamma[i, j, k] = 0.5 * s
         return gamma
 
@@ -90,7 +96,7 @@ class ExponentialMap:
         self,
         base_point: np.ndarray,
         tangent_vector: np.ndarray,
-        t_max: Optional[float] = None,
+        t_max: float | None = None,
         steps: int = 100,
     ) -> np.ndarray:
         """
@@ -145,7 +151,7 @@ class ExponentialMap:
         self,
         base_points: np.ndarray,
         tangent_vectors: np.ndarray,
-        t_max: Optional[float] = None,
+        t_max: float | None = None,
         steps: int = 100,
     ) -> np.ndarray:
         """
@@ -160,11 +166,7 @@ class ExponentialMap:
         -------
         np.ndarray, shape (B, n)
         """
-        try:
-            import torch
-            _has_torch = True
-        except ImportError:
-            _has_torch = False
+        _has_torch = importlib.util.find_spec("torch") is not None
 
         if _has_torch:
             return self._exp_map_batch_torch(base_points, tangent_vectors, t_max, steps)
@@ -174,7 +176,7 @@ class ExponentialMap:
         self,
         base_points: np.ndarray,
         tangent_vectors: np.ndarray,
-        t_max: Optional[float],
+        t_max: float | None,
         steps: int,
     ) -> np.ndarray:
         import torch
@@ -260,13 +262,15 @@ class ExponentialMap:
         self,
         base_points: np.ndarray,
         tangent_vectors: np.ndarray,
-        t_max: Optional[float],
+        t_max: float | None,
         steps: int,
     ) -> np.ndarray:
         B, n = base_points.shape
         endpoints = np.zeros((B, n))
         for b in range(B):
-            endpoints[b] = self.exp_map(base_points[b], tangent_vectors[b], t_max, steps)
+            endpoints[b] = self.exp_map(
+                base_points[b], tangent_vectors[b], t_max, steps
+            )
         return endpoints
 
     # ----- log_p(q) ---------------------------------------------------------
@@ -385,13 +389,16 @@ class ExponentialMap:
         B, n = base_points.shape
         tangent_vectors = np.zeros((B, n))
         for b in range(B):
-            tangent_vectors[b] = self.log_map(base_points[b], target_points[b], max_iter, tol)
+            tangent_vectors[b] = self.log_map(
+                base_points[b], target_points[b], max_iter, tol
+            )
         return tangent_vectors
 
 
 # ---------------------------------------------------------------------------
 # Retraction Map (first-order approximation)
 # ---------------------------------------------------------------------------
+
 
 class RetractionMap:
     """
@@ -405,7 +412,7 @@ class RetractionMap:
 
     def __init__(
         self,
-        metric_fn: Optional[Callable[[np.ndarray], np.ndarray]] = None,
+        metric_fn: Callable[[np.ndarray], np.ndarray] | None = None,
     ) -> None:
         self.metric_fn = metric_fn
 
@@ -451,6 +458,7 @@ class RetractionMap:
 # Inverse Retraction
 # ---------------------------------------------------------------------------
 
+
 class InverseRetraction:
     """
     Inverse of the retraction map: an approximate logarithmic map.
@@ -460,7 +468,7 @@ class InverseRetraction:
 
     def __init__(
         self,
-        metric_fn: Optional[Callable[[np.ndarray], np.ndarray]] = None,
+        metric_fn: Callable[[np.ndarray], np.ndarray] | None = None,
     ) -> None:
         self.metric_fn = metric_fn
 

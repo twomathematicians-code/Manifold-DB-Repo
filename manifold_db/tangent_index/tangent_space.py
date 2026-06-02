@@ -18,17 +18,17 @@ Key operations
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, Optional
+from typing import Any
 
 import numpy as np
-from numpy.linalg import svd, norm, solve, inv
-from scipy.spatial.distance import cdist
+from numpy.linalg import svd
 
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Small helper
 # ---------------------------------------------------------------------------
+
 
 def _stable_svd(X: np.ndarray, full_matrices: bool = False) -> tuple:
     """Economy SVD with a tiny regularisation for numerical safety."""
@@ -39,6 +39,7 @@ def _stable_svd(X: np.ndarray, full_matrices: bool = False) -> tuple:
 # ===========================================================================
 # TangentSpace
 # ===========================================================================
+
 
 class TangentSpace:
     """
@@ -60,8 +61,8 @@ class TangentSpace:
     def __init__(
         self,
         base_point: np.ndarray,
-        data: Optional[np.ndarray] = None,
-        intrinsic_dim: Optional[int] = None,
+        data: np.ndarray | None = None,
+        intrinsic_dim: int | None = None,
     ) -> None:
         self.base_point = np.asarray(base_point, dtype=np.float64)
         self._ambient_dim = self.base_point.shape[0]
@@ -89,17 +90,17 @@ class TangentSpace:
 
     def _infer_dimension(self, S: np.ndarray, threshold: float = 0.95) -> int:
         """Infer intrinsic dimension from cumulative explained variance."""
-        cumvar = np.cumsum(S ** 2) / np.sum(S ** 2)
+        cumvar = np.cumsum(S**2) / np.sum(S**2)
         return max(1, int(np.searchsorted(cumvar, threshold) + 1))
 
     def _compute_basis_from_data(
-        self, data: np.ndarray, intrinsic_dim: Optional[int]
+        self, data: np.ndarray, intrinsic_dim: int | None
     ) -> None:
         """Build orthonormal basis via centred SVD."""
         n, d = data.shape
-        assert d == self._ambient_dim, (
-            f"Data ambient dim {d} != base_point dim {self._ambient_dim}"
-        )
+        assert (
+            d == self._ambient_dim
+        ), f"Data ambient dim {d} != base_point dim {self._ambient_dim}"
 
         # Centre at base point
         X = data - self.base_point[np.newaxis, :]
@@ -124,7 +125,6 @@ class TangentSpace:
         # for an orthonormal basis.  We perturb it with local curvature
         # estimated from residual variance.
         residuals = X - X @ self.basis @ self.basis.T
-        residual_energy = np.sum(residuals ** 2) / max(n, 1)
         self.metric_tensor = np.eye(self.dimension, dtype=np.float64)
         # Add curvature correction: off-diagonal terms from data covariance
         if n > self.dimension:
@@ -177,7 +177,9 @@ class TangentSpace:
                         gp = diff_plus @ diff_plus  # scalar approximation
                         gm = diff_minus @ diff_minus
                         dG_da = (gp - gm) / (2.0 * h)
-                        self.christoffel_symbols[a, i, j] += dG_da / min(tc.shape[0], 20)
+                        self.christoffel_symbols[a, i, j] += dG_da / min(
+                            tc.shape[0], 20
+                        )
 
     # ------------------------------------------------------------------
     # Public API
@@ -243,10 +245,10 @@ class TangentSpace:
         tangent = diff @ self.basis
 
         # Correct for non-linearity: scale by inverse of local stretch factor
-        stretch = np.sqrt(np.sum(diff ** 2))
+        stretch = np.sqrt(np.sum(diff**2))
         if stretch > 1e-12:
             # Approximate correction using geodesic distance / chord distance
-            correction = 1.0 - (stretch ** 2) / (24.0 * (self._ambient_dim + 1))
+            correction = 1.0 - (stretch**2) / (24.0 * (self._ambient_dim + 1))
             correction = max(correction, 0.5)
             tangent *= correction
 
@@ -326,7 +328,7 @@ class TangentSpace:
         return float(np.sqrt(max(inner, 0.0)))
 
     def parallel_transport(
-        self, vec: np.ndarray, target_tangent_space: "TangentSpace"
+        self, vec: np.ndarray, target_tangent_space: TangentSpace
     ) -> np.ndarray:
         """
         Parallel transport a tangent vector from this tangent space to
@@ -419,7 +421,12 @@ class TangentSpace:
         self.basis = Q[:, : self.dimension]
 
         # Recompute metric tensor (smooth update)
-        cov_term = (self.basis.T @ (batch - self.base_point).T @ (batch - self.base_point) @ self.basis)
+        cov_term = (
+            self.basis.T
+            @ (batch - self.base_point).T
+            @ (batch - self.base_point)
+            @ self.basis
+        )
         cov_term /= max(batch.shape[0] - 1, 1)
         cov_term = cov_term / (np.max(np.abs(cov_term)) + 1e-12)
         self.metric_tensor = 0.5 * (self.metric_tensor + self.metric_tensor.T)
@@ -432,7 +439,7 @@ class TangentSpace:
     # Serialisation
     # ------------------------------------------------------------------
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Serialise to a plain-Python dict."""
         return {
             "base_point": self.base_point.tolist(),
@@ -444,7 +451,7 @@ class TangentSpace:
         }
 
     @classmethod
-    def from_dict(cls, d: Dict[str, Any]) -> "TangentSpace":
+    def from_dict(cls, d: dict[str, Any]) -> TangentSpace:
         """Deserialise from a dict produced by ``to_dict``."""
         ts = cls.__new__(cls)
         ts.base_point = np.asarray(d["base_point"], dtype=np.float64)

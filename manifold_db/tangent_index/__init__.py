@@ -19,9 +19,9 @@ Quick start
 >>> results = index.search(query, k=10)
 """
 
-from .tangent_space import TangentSpace
-from .tangent_bundle import TangentBundle
 from .index import TangentSpaceIndex
+from .tangent_bundle import TangentBundle
+from .tangent_space import TangentSpace
 
 __all__ = [
     "TangentSpace",

@@ -10,25 +10,23 @@ from __future__ import annotations
 import functools
 import json
 import logging
-import time
 import statistics
+import time
+from collections.abc import Generator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
-from typing import Any, Dict, Generator, List, Optional, Sequence
-
+from typing import Any
 
 # ---------------------------------------------------------------------------
 # Logging setup
 # ---------------------------------------------------------------------------
 
-_DEFAULT_FORMAT = (
-    "%(asctime)s | %(levelname)-8s | %(name)s | %(message)s"
-)
+_DEFAULT_FORMAT = "%(asctime)s | %(levelname)-8s | %(name)s | %(message)s"
 
 
 def setup_logging(
     level: str = "INFO",
-    log_file: Optional[str] = None,
+    log_file: str | None = None,
     json_format: bool = False,
 ) -> None:
     """Configure the root logger for the manifold database package.
@@ -85,7 +83,7 @@ class _JsonFormatter(logging.Formatter):
     """Structured JSON log formatter."""
 
     def format(self, record: logging.LogRecord) -> str:
-        log_entry: Dict[str, Any] = {
+        log_entry: dict[str, Any] = {
             "timestamp": self.formatTime(record, self.datefmt),
             "level": record.levelname,
             "logger": record.name,
@@ -100,13 +98,14 @@ class _JsonFormatter(logging.Formatter):
 
 
 # ---------------------------------------------------------------------------
-# LogTimer context manager
+# log_timer context manager
 # ---------------------------------------------------------------------------
 
+
 @contextmanager
-def LogTimer(
+def log_timer(
     operation: str,
-    logger: Optional[logging.Logger] = None,
+    logger: logging.Logger | None = None,
     level: int = logging.INFO,
 ) -> Generator[None, None, None]:
     """Context manager that logs the wall-clock duration of a block.
@@ -126,7 +125,7 @@ def LogTimer(
 
     Example
     -------
-    >>> with LogTimer("atlas build", logger=log):
+    >>> with log_timer("atlas build", logger=log):
     ...     build_atlas(data)
     """
     _logger = logger or get_logger("timer")
@@ -143,8 +142,9 @@ def LogTimer(
 # log_execution decorator
 # ---------------------------------------------------------------------------
 
+
 def log_execution(
-    func: Optional[Any] = None,
+    func: Any | None = None,
     *,
     level: int = logging.DEBUG,
 ) -> Any:
@@ -201,6 +201,7 @@ def log_execution(
 # PerformanceTracker
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class _QueryRecord:
     """Single query performance record."""
@@ -227,7 +228,7 @@ class PerformanceTracker:
 
     def __init__(self, max_history: int = 10_000) -> None:
         self._max_history = max_history
-        self._history: List[_QueryRecord] = []
+        self._history: list[_QueryRecord] = []
         self._logger = get_logger("performance")
 
     # ------------------------------------------------------------------
@@ -263,13 +264,13 @@ class PerformanceTracker:
         self._history.append(record)
         # Trim to max_history
         if len(self._history) > self._max_history:
-            self._history = self._history[-self._max_history:]
+            self._history = self._history[-self._max_history :]
 
     # ------------------------------------------------------------------
     # Aggregated statistics
     # ------------------------------------------------------------------
 
-    def summary(self) -> Dict[str, Any]:
+    def summary(self) -> dict[str, Any]:
         """Return aggregated performance statistics.
 
         Returns
@@ -306,7 +307,7 @@ class PerformanceTracker:
             self._history[-1].timestamp - self._history[0].timestamp
         ) or 1e-9
 
-        by_type: Dict[str, Dict[str, Any]] = {}
+        by_type: dict[str, dict[str, Any]] = {}
         for r in self._history:
             bucket = by_type.setdefault(r.query_type, {"count": 0, "total_ms": 0.0})
             bucket["count"] += 1
@@ -319,9 +320,7 @@ class PerformanceTracker:
             "total_duration_ms": round(total_duration, 3),
             "avg_duration_ms": round(statistics.mean(durations), 3),
             "median_duration_ms": round(statistics.median(durations), 3),
-            "p95_duration_ms": round(
-                sorted_d[int(len(sorted_d) * 0.95)], 3
-            ),
+            "p95_duration_ms": round(sorted_d[int(len(sorted_d) * 0.95)], 3),
             "min_duration_ms": round(min(durations), 3),
             "max_duration_ms": round(max(durations), 3),
             "queries_per_second": round(len(self._history) / total_time_span, 2),
@@ -332,7 +331,7 @@ class PerformanceTracker:
     # Recent queries
     # ------------------------------------------------------------------
 
-    def recent_queries(self, n: int = 100) -> List[Dict[str, Any]]:
+    def recent_queries(self, n: int = 100) -> list[dict[str, Any]]:
         """Return the most recent *n* query records as plain dicts.
 
         Parameters

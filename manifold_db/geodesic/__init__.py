@@ -15,24 +15,22 @@ exponential_map
     ExponentialMap, RetractionMap, InverseRetraction
 """
 
-from manifold_db.geodesic.solver import (
-    GeodesicResult,
-    GeodesicSolver,
-    IntegrationMethod,
-    compute_christoffel_symbols,
-)
-
 from manifold_db.geodesic.distance import (
     DistanceComputer,
     FisherRaoDistance,
     RiemannianDistance,
     WassersteinDistance,
 )
-
 from manifold_db.geodesic.exponential_map import (
     ExponentialMap,
     InverseRetraction,
     RetractionMap,
+)
+from manifold_db.geodesic.solver import (
+    GeodesicResult,
+    GeodesicSolver,
+    IntegrationMethod,
+    compute_christoffel_symbols,
 )
 
 __all__ = [

@@ -18,33 +18,28 @@ Commands
 from __future__ import annotations
 
 import json
-import sys
-from dataclasses import fields, asdict
+from dataclasses import fields
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 import typer
 from rich.console import Console
-from rich.json import JSON as RichJSON
 from rich.table import Table
 from rich.tree import Tree
-from rich.panel import Panel
 
 from manifold_db.utils.config import (
-    ManifoldConfig,
     AtlasConfig,
-    IndexConfig,
-    GeodesicConfig,
-    MetricConfig,
-    StorageConfig,
     ConnectionConfig,
+    GeodesicConfig,
+    IndexConfig,
+    ManifoldConfig,
+    MetricConfig,
     QueryConfig,
     ServerConfig,
-    load_config,
-    save_config,
-    default_config,
-    validate_config,
+    StorageConfig,
     _config_to_dict,
+    default_config,
+    load_config,
 )
 
 console = Console()
@@ -54,7 +49,7 @@ console = Console()
 # ═══════════════════════════════════════════════════════════════
 
 # Map section names to their dataclass types
-SECTION_TYPES: Dict[str, type] = {
+SECTION_TYPES: dict[str, type] = {
     "atlas": AtlasConfig,
     "index": IndexConfig,
     "geodesic": GeodesicConfig,
@@ -66,7 +61,7 @@ SECTION_TYPES: Dict[str, type] = {
 }
 
 # Friendly descriptions for each section
-SECTION_DESCRIPTIONS: Dict[str, str] = {
+SECTION_DESCRIPTIONS: dict[str, str] = {
     "atlas": "Atlas construction and management",
     "index": "Tangent-space nearest-neighbor index",
     "geodesic": "Geodesic computation and solver",
@@ -78,7 +73,7 @@ SECTION_DESCRIPTIONS: Dict[str, str] = {
 }
 
 # Field-level descriptions for common parameters
-FIELD_DESCRIPTIONS: Dict[str, str] = {
+FIELD_DESCRIPTIONS: dict[str, str] = {
     "max_charts": "Maximum number of charts in the atlas",
     "min_chart_size": "Minimum data points per chart",
     "overlap_ratio": "Overlap fraction between adjacent charts",
@@ -113,7 +108,7 @@ FIELD_DESCRIPTIONS: Dict[str, str] = {
 }
 
 
-def _get_field_info(section_name: str) -> List[Tuple[str, str, Any, str]]:
+def _get_field_info(section_name: str) -> list[tuple[str, str, Any, str]]:
     """Return (name, type, default, description) for each field in a section."""
     section_cls = SECTION_TYPES.get(section_name)
     if section_cls is None:
@@ -121,11 +116,18 @@ def _get_field_info(section_name: str) -> List[Tuple[str, str, Any, str]]:
     info = []
     for f in fields(section_cls):
         desc = FIELD_DESCRIPTIONS.get(f.name, "")
-        info.append((f.name, f.type.__name__ if hasattr(f.type, "__name__") else str(f.type), f.default, desc))
+        info.append(
+            (
+                f.name,
+                f.type.__name__ if hasattr(f.type, "__name__") else str(f.type),
+                f.default,
+                desc,
+            )
+        )
     return info
 
 
-def _load_cfg(path: Optional[str]) -> ManifoldConfig:
+def _load_cfg(path: str | None) -> ManifoldConfig:
     """Load configuration, falling back to defaults."""
     if path:
         try:
@@ -140,8 +142,9 @@ def _load_cfg(path: Optional[str]) -> ManifoldConfig:
 # Commands (usable as standalone helpers or registered into main app)
 # ═══════════════════════════════════════════════════════════════
 
+
 def cmd_config_list_sections(
-    config: Optional[str] = None,
+    config: str | None = None,
 ) -> None:
     """List all configuration sections with their parameters.
 
@@ -156,7 +159,6 @@ def cmd_config_list_sections(
         section_obj = getattr(cfg, section_name)
         for name, type_name, default, field_desc in _get_field_info(section_name):
             current = getattr(section_obj, name)
-            type_str = type_name.replace("str", "").strip() if isinstance(current, str) else type_name
             label = f"[bold]{name}[/bold]"
             value_str = f"[green]{current!r}[/green]"
             branch.add(f"{label} ({type_name}) = {value_str}  [dim]{field_desc}[/dim]")
@@ -183,11 +185,13 @@ def cmd_config_diff(
     data_b = _config_to_dict(cfg_b)
 
     # Find differences recursively
-    diffs: List[str] = []
+    diffs: list[str] = []
 
     def _compare(path: str, val_a: Any, val_b: Any) -> None:
-        if type(val_a) != type(val_b):
-            diffs.append(f"{path}: type changed from {type(val_a).__name__} to {type(val_b).__name__}")
+        if type(val_a) is not type(val_b):
+            diffs.append(
+                f"{path}: type changed from {type(val_a).__name__} to {type(val_b).__name__}"
+            )
         elif isinstance(val_a, dict):
             for key in set(list(val_a.keys()) + list(val_b.keys())):
                 _compare(f"{path}.{key}", val_a.get(key), val_b.get(key))
@@ -195,7 +199,9 @@ def cmd_config_diff(
             diffs.append(f"{path}: [red]{val_a!r}[/red] → [green]{val_b!r}[/green]")
 
     for section_name in SECTION_TYPES:
-        _compare(section_name, data_a.get(section_name, {}), data_b.get(section_name, {}))
+        _compare(
+            section_name, data_a.get(section_name, {}), data_b.get(section_name, {})
+        )
 
     if not diffs:
         console.print("[green]Configurations are identical.[/green]")
@@ -213,9 +219,9 @@ def cmd_config_diff(
 
 
 def cmd_config_export(
-    config: Optional[str] = None,
+    config: str | None = None,
     format: str = "yaml",
-    output: Optional[str] = None,
+    output: str | None = None,
 ) -> None:
     """Export configuration in various formats.
 
@@ -235,6 +241,7 @@ def cmd_config_export(
         content = json.dumps(data, indent=2)
     elif format == "yaml":
         import yaml
+
         content = yaml.dump(data, default_flow_style=False, sort_keys=False)
     elif format == "env":
         lines = []
@@ -261,6 +268,7 @@ def cmd_config_export(
 # Registration helper — call from cli/main.py to add these commands
 # ═══════════════════════════════════════════════════════════════
 
+
 def register_extra_config_commands(config_app: typer.Typer) -> None:
     """Register additional config commands into the existing config app group.
 
@@ -272,8 +280,11 @@ def register_extra_config_commands(config_app: typer.Typer) -> None:
 
     @config_app.command("list-sections")
     def _list_sections(
-        config: Optional[str] = typer.Option(
-            None, "--config", "-c", help="Path to config file.",
+        config: str | None = typer.Option(
+            None,
+            "--config",
+            "-c",
+            help="Path to config file.",
         ),
     ):
         """List all configuration sections and their parameters."""
@@ -290,13 +301,22 @@ def register_extra_config_commands(config_app: typer.Typer) -> None:
     @config_app.command("export")
     def _export(
         format: str = typer.Option(
-            "yaml", "--format", "-f", help="Output format (yaml, json, env).",
+            "yaml",
+            "--format",
+            "-f",
+            help="Output format (yaml, json, env).",
         ),
-        output: Optional[str] = typer.Option(
-            None, "--output", "-o", help="Output file path.",
+        output: str | None = typer.Option(
+            None,
+            "--output",
+            "-o",
+            help="Output file path.",
         ),
-        config: Optional[str] = typer.Option(
-            None, "--config", "-c", help="Path to config file.",
+        config: str | None = typer.Option(
+            None,
+            "--config",
+            "-c",
+            help="Path to config file.",
         ),
     ):
         """Export configuration in a specified format."""

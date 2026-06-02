@@ -13,7 +13,6 @@ from manifold_db.atlas import (
     LinearTransition,
 )
 
-
 # ================================================================
 # Chart
 # ================================================================
@@ -46,7 +45,9 @@ class TestChart:
         def inverse(y):
             return y - shift
 
-        c = Chart(name="shifted", dim=3, ambient_dim=3, embedding_fn=embed, inverse_fn=inverse)
+        c = Chart(
+            name="shifted", dim=3, ambient_dim=3, embedding_fn=embed, inverse_fn=inverse
+        )
         original = np.random.randn(5, 3)
         np.testing.assert_allclose(c.inverse(c.embed(original)), original, atol=1e-12)
 
@@ -84,25 +85,34 @@ class TestChart:
 class TestLinearTransition:
     def test_forward(self):
         M = np.eye(3)
-        lt = LinearTransition(source_chart_id="a", target_chart_id="b",
-                              overlap_region=np.array([[-5, -5, -5], [5, 5, 5]]),
-                              matrix=M)
+        lt = LinearTransition(
+            source_chart_id="a",
+            target_chart_id="b",
+            overlap_region=np.array([[-5, -5, -5], [5, 5, 5]]),
+            matrix=M,
+        )
         coords = np.random.randn(4, 3)
         np.testing.assert_allclose(lt.forward(coords), coords)
 
     def test_inverse(self):
         M = np.diag([1.0, 2.0, 3.0])
-        lt = LinearTransition(source_chart_id="a", target_chart_id="b",
-                              overlap_region=np.array([[-5, -5, -5], [5, 5, 5]]),
-                              matrix=M)
+        lt = LinearTransition(
+            source_chart_id="a",
+            target_chart_id="b",
+            overlap_region=np.array([[-5, -5, -5], [5, 5, 5]]),
+            matrix=M,
+        )
         x = np.random.randn(4, 3)
         np.testing.assert_allclose(lt.inverse(lt.forward(x)), x, atol=1e-12)
 
     def test_jacobian(self):
         M = np.random.randn(3, 3)
-        lt = LinearTransition(source_chart_id="a", target_chart_id="b",
-                              overlap_region=np.array([[-5, -5, -5], [5, 5, 5]]),
-                              matrix=M)
+        lt = LinearTransition(
+            source_chart_id="a",
+            target_chart_id="b",
+            overlap_region=np.array([[-5, -5, -5], [5, 5, 5]]),
+            matrix=M,
+        )
         J = lt.jacobian(np.zeros(3))
         np.testing.assert_allclose(J, M)
 
@@ -111,17 +121,25 @@ class TestAffineTransition:
     def test_roundtrip(self):
         M = np.diag([1.0, 2.0, 3.0])
         b = np.array([1.0, 0.5, -1.0])
-        at = AffineTransition(source_chart_id="a", target_chart_id="b",
-                              overlap_region=np.array([[-10, -10, -10], [10, 10, 10]]),
-                              matrix=M, bias=b)
+        at = AffineTransition(
+            source_chart_id="a",
+            target_chart_id="b",
+            overlap_region=np.array([[-10, -10, -10], [10, 10, 10]]),
+            matrix=M,
+            bias=b,
+        )
         x = np.random.randn(5, 3)
         np.testing.assert_allclose(at.inverse(at.forward(x)), x, atol=1e-12)
 
     def test_bias_applied(self):
         b = np.array([1.0, 2.0, 3.0])
-        at = AffineTransition(source_chart_id="a", target_chart_id="b",
-                              overlap_region=np.array([[-5, -5, -5], [5, 5, 5]]),
-                              matrix=np.eye(3), bias=b)
+        at = AffineTransition(
+            source_chart_id="a",
+            target_chart_id="b",
+            overlap_region=np.array([[-5, -5, -5], [5, 5, 5]]),
+            matrix=np.eye(3),
+            bias=b,
+        )
         zero = np.zeros((1, 3))
         np.testing.assert_allclose(at.forward(zero), b.reshape(1, 3))
 

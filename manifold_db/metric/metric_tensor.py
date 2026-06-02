@@ -15,10 +15,9 @@ that varies from point to point on the manifold.  This module provides:
 from __future__ import annotations
 
 import abc
-import json
 import logging
-import math
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from collections.abc import Callable
+from typing import Any
 
 import numpy as np
 from scipy.linalg import sqrtm
@@ -26,9 +25,11 @@ from scipy.linalg import sqrtm
 try:
     import torch
     import torch.nn as nn
+
     _HAS_TORCH = True
 except ImportError:
     import types
+
     # Create stub module so that class definitions don't fail at import time.
     # The _require_torch() guard inside __init__ prevents runtime use without torch.
     torch = types.ModuleType("torch")  # type: ignore[assignment]
@@ -45,6 +46,7 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 #  Abstract base
 # ---------------------------------------------------------------------------
+
 
 class MetricTensor(abc.ABC):
     """Abstract base class for a Riemannian metric tensor field.
@@ -86,21 +88,30 @@ class MetricTensor(abc.ABC):
         g_inv = np.linalg.inv(g)
         Gamma = np.zeros((n, n, n), dtype=np.float64)
 
-        for l in range(n):
+        for idx_l in range(n):
             for j in range(n):
                 dp = np.zeros(n)
                 dm = np.zeros(n)
                 dp[j] = eps
                 dm[j] = eps
-                dg_lk = (self.evaluate(point + dp)[l, :] - self.evaluate(point - dp)[l, :]) / (2.0 * eps)
+                dg_lk = (
+                    self.evaluate(point + dp)[idx_l, :]
+                    - self.evaluate(point - dp)[idx_l, :]
+                ) / (2.0 * eps)
                 for k in range(n):
                     dp2 = np.zeros(n)
                     dm2 = np.zeros(n)
                     dp2[k] = eps
                     dm2[k] = eps
-                    dg_lj = (self.evaluate(point + dp2)[l, j] - self.evaluate(point - dp2)[l, j]) / (2.0 * eps)
-                    dl_gjk = (self.evaluate(point + dp)[j, k] - self.evaluate(point - dp)[j, k]) / (2.0 * eps)
-                    Gamma[:, j, k] += g_inv[:, l] * (dg_lk[k] + dg_lj - dl_gjk)
+                    dg_lj = (
+                        self.evaluate(point + dp2)[idx_l, j]
+                        - self.evaluate(point - dp2)[idx_l, j]
+                    ) / (2.0 * eps)
+                    dl_gjk = (
+                        self.evaluate(point + dp)[j, k]
+                        - self.evaluate(point - dp)[j, k]
+                    ) / (2.0 * eps)
+                    Gamma[:, j, k] += g_inv[:, idx_l] * (dg_lk[k] + dg_lj - dl_gjk)
 
         Gamma *= 0.5
         return Gamma
@@ -111,7 +122,8 @@ class MetricTensor(abc.ABC):
         r"""Sectional curvature K(u, v) at *point*.
 
         .. math::
-            K(u,v) = \frac{R(u,v,v,u)}{\langle u,u \rangle \langle v,v \rangle - \langle u,v \rangle^2}
+            K(u,v) = \frac{R(u,v,v,u)}
+            {\langle u,u \rangle \langle v,v \rangle - \langle u,v \rangle^2}
 
         Uses the full Riemann tensor approximated from the Ricci tensor
         (constant sectional curvature assumption for numerical tractability).
@@ -122,7 +134,7 @@ class MetricTensor(abc.ABC):
         norm_sq_u = u @ g @ u
         norm_sq_v = v @ g @ v
         inner_uv = u @ g @ v
-        denom = norm_sq_u * norm_sq_v - inner_uv ** 2
+        denom = norm_sq_u * norm_sq_v - inner_uv**2
         if abs(denom) < 1e-14:
             return 0.0
 
@@ -130,7 +142,7 @@ class MetricTensor(abc.ABC):
         n = g.shape[0]
         R_scalar = self.scalar_curvature(point)
         R_const = R_scalar / (n * (n - 1)) if n > 1 else 0.0
-        Riem = R_const * (norm_sq_u * norm_sq_v - inner_uv ** 2)
+        Riem = R_const * (norm_sq_u * norm_sq_v - inner_uv**2)
         return float(Riem / denom)
 
     def ricci_curvature(self, point: np.ndarray, eps: float = 1e-4) -> np.ndarray:
@@ -147,22 +159,28 @@ class MetricTensor(abc.ABC):
                 val = 0.0
                 for k in range(n):
                     # R^k_{ikj} via finite-difference of Christoffel symbols
-                    def christoffel_component(p: np.ndarray, idx_k: int, idx_i: int, idx_j: int) -> float:
+                    def christoffel_component(
+                        p: np.ndarray, idx_k: int, idx_i: int, idx_j: int
+                    ) -> float:
                         G = self.christoffel_symbols(p, eps=eps * 0.5)
                         return G[idx_k, idx_i, idx_j]
 
-                    for l in range(n):
+                    for idx_l in range(n):
                         dG = (
-                            christoffel_component(point + eps * _e(l, n), k, i, j)
-                            - christoffel_component(point - eps * _e(l, n), k, i, j)
+                            christoffel_component(
+                                point + eps * _e(idx_l, n), k, i, j
+                            )
+                            - christoffel_component(
+                                point - eps * _e(idx_l, n), k, i, j
+                            )
                         ) / (2.0 * eps)
                         dG2 = (
-                            christoffel_component(point + eps * _e(j, n), k, i, l)
-                            - christoffel_component(point - eps * _e(j, n), k, i, l)
+                            christoffel_component(point + eps * _e(j, n), k, i, idx_l)
+                            - christoffel_component(point - eps * _e(j, n), k, i, idx_l)
                         ) / (2.0 * eps)
                         dG3 = (
-                            christoffel_component(point + eps * _e(i, n), k, l, j)
-                            - christoffel_component(point - eps * _e(i, n), k, l, j)
+                            christoffel_component(point + eps * _e(i, n), k, idx_l, j)
+                            - christoffel_component(point - eps * _e(i, n), k, idx_l, j)
                         ) / (2.0 * eps)
                         val += dG - dG2 + dG3
                 Ric[i, j] = val
@@ -176,14 +194,14 @@ class MetricTensor(abc.ABC):
 
     # ---- serialisation -----------------------------------------------------
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {"type": self.__class__.__name__}
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "MetricTensor":
+    def from_dict(cls, data: dict[str, Any]) -> MetricTensor:
         """Deserialise a metric from a dictionary."""
         kind = data.pop("type", None)
-        registry: Dict[str, type] = {
+        registry: dict[str, type] = {
             "EuclideanMetric": EuclideanMetric,
             "DiagonalMetric": DiagonalMetric,
             "LearnedMetric": LearnedMetric,
@@ -206,6 +224,7 @@ def _e(i: int, n: int) -> np.ndarray:
 #  Euclidean metric
 # ---------------------------------------------------------------------------
 
+
 class EuclideanMetric(MetricTensor):
     """Flat Euclidean metric g_ij = δ_ij."""
 
@@ -227,11 +246,11 @@ class EuclideanMetric(MetricTensor):
     def scalar_curvature(self, point: np.ndarray) -> float:
         return 0.0
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {"type": "EuclideanMetric", "dim": self.dim}
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "EuclideanMetric":
+    def from_dict(cls, data: dict[str, Any]) -> EuclideanMetric:
         return cls(dim=data.get("dim", 3))
 
 
@@ -239,14 +258,15 @@ class EuclideanMetric(MetricTensor):
 #  Diagonal metric
 # ---------------------------------------------------------------------------
 
+
 class DiagonalMetric(MetricTensor):
     """Diagonal metric g_ij = diag(w_0, …, w_{n-1}) with optional spatial variation."""
 
     def __init__(
         self,
-        weights: Optional[np.ndarray] = None,
+        weights: np.ndarray | None = None,
         dim: int = 3,
-        variation_fn: Optional[Callable[[np.ndarray], np.ndarray]] = None,
+        variation_fn: Callable[[np.ndarray], np.ndarray] | None = None,
     ) -> None:
         if weights is not None:
             self.weights = np.asarray(weights, dtype=np.float64)
@@ -265,7 +285,9 @@ class DiagonalMetric(MetricTensor):
     def inverse(self, point: np.ndarray) -> np.ndarray:
         w = 1.0 / np.maximum(self.weights, 1e-12)
         if self.variation_fn is not None:
-            v = np.maximum(np.asarray(self.variation_fn(point), dtype=np.float64), 1e-12)
+            v = np.maximum(
+                np.asarray(self.variation_fn(point), dtype=np.float64), 1e-12
+            )
             w = w / v
         return np.diag(w)
 
@@ -276,7 +298,7 @@ class DiagonalMetric(MetricTensor):
     def log_det(self, point: np.ndarray) -> float:
         return float(np.sum(np.log(np.maximum(np.diag(self.evaluate(point)), 1e-12))))
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "type": "DiagonalMetric",
             "weights": self.weights.tolist(),
@@ -284,7 +306,7 @@ class DiagonalMetric(MetricTensor):
         }
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "DiagonalMetric":
+    def from_dict(cls, data: dict[str, Any]) -> DiagonalMetric:
         weights = np.array(data["weights"]) if "weights" in data else None
         return cls(weights=weights, dim=data.get("dim", 3))
 
@@ -292,6 +314,7 @@ class DiagonalMetric(MetricTensor):
 # ---------------------------------------------------------------------------
 #  Learned (neural) metric
 # ---------------------------------------------------------------------------
+
 
 def _require_torch() -> None:
     """Raise ImportError if torch is not available."""
@@ -313,7 +336,7 @@ class MetricMLP(nn.Module):
         super().__init__()
         self.dim = dim
         self.n_components = dim * (dim + 1) // 2  # lower-triangular entries
-        layers: List[nn.Module] = []
+        layers: list[nn.Module] = []
         in_feat = dim
         for _ in range(n_layers - 1):
             layers.append(nn.Linear(in_feat, hidden))
@@ -334,7 +357,9 @@ class LearnedMetric(MetricTensor):
     output by a small MLP.  This guarantees positive-definiteness everywhere.
     """
 
-    def __init__(self, dim: int, hidden: int = 64, n_layers: int = 3, lr: float = 1e-3) -> None:
+    def __init__(
+        self, dim: int, hidden: int = 64, n_layers: int = 3, lr: float = 1e-3
+    ) -> None:
         _require_torch()
         self.dim = dim
         self.device = torch.device("cpu")
@@ -343,7 +368,9 @@ class LearnedMetric(MetricTensor):
         self._optimizer = torch.optim.Adam(self.mlp.parameters(), lr=self.lr)
 
     def _point_to_tensor(self, point: np.ndarray) -> torch.Tensor:
-        return torch.as_tensor(point, dtype=torch.float64, device=self.device).unsqueeze(0)
+        return torch.as_tensor(
+            point, dtype=torch.float64, device=self.device
+        ).unsqueeze(0)
 
     def _flat_to_matrix(self, flat: torch.Tensor) -> torch.Tensor:
         """Convert flat lower-triangular vector to Cholesky matrix."""
@@ -379,10 +406,10 @@ class LearnedMetric(MetricTensor):
     def train(
         self,
         samples: np.ndarray,
-        tangent_pairs: Optional[np.ndarray] = None,
+        tangent_pairs: np.ndarray | None = None,
         n_epochs: int = 100,
         batch_size: int = 32,
-    ) -> Dict[str, List[float]]:
+    ) -> dict[str, list[float]]:
         """Learn metric from data.
 
         Parameters
@@ -399,7 +426,7 @@ class LearnedMetric(MetricTensor):
         dict with 'loss' history.
         """
         x = torch.as_tensor(samples, dtype=torch.float32, device=self.device)
-        history: List[float] = []
+        history: list[float] = []
         n = len(samples)
 
         for epoch in range(n_epochs):
@@ -414,16 +441,19 @@ class LearnedMetric(MetricTensor):
                 g = L @ L.transpose(-1, -2)
 
                 # Reconstruction loss: encourage g ≈ I near sample mean
-                loss = torch.mean((g - torch.eye(self.dim, device=self.device).unsqueeze(0)) ** 2)
+                loss = torch.mean(
+                    (g - torch.eye(self.dim, device=self.device).unsqueeze(0)) ** 2
+                )
 
                 # Tangent pair loss: inner products should be consistent
                 if tangent_pairs is not None:
-                    pairs = torch.as_tensor(tangent_pairs, dtype=torch.float32, device=self.device)
+                    pairs = torch.as_tensor(
+                        tangent_pairs, dtype=torch.float32, device=self.device
+                    )
                     for k in range(min(len(pairs), batch_size)):
                         p1, p2 = pairs[k, 0], pairs[k, 1]
                         diff = (p1 - p2).unsqueeze(0)
                         flat1 = self.mlp(p1.unsqueeze(0))
-                        flat2 = self.mlp(p2.unsqueeze(0))
                         L1 = self._flat_to_matrix(flat1)
                         g1 = (L1 @ L1.transpose(-1, -2)).squeeze(0)
                         inner = diff @ g1 @ diff.T
@@ -438,25 +468,35 @@ class LearnedMetric(MetricTensor):
             avg_loss = epoch_loss / max(count, 1)
             history.append(avg_loss)
             if epoch % 20 == 0:
-                logger.info("LearnedMetric epoch %d/%d  loss=%.6f", epoch, n_epochs, avg_loss)
+                logger.info(
+                    "LearnedMetric epoch %d/%d  loss=%.6f", epoch, n_epochs, avg_loss
+                )
 
         return {"loss": history}
 
-    def to_dict(self) -> Dict[str, Any]:
-        state = {k: v.tolist() if isinstance(v, np.ndarray) else v for k, v in {
-            "dim": self.dim, "hidden": self.mlp.net[0].out_features if len(self.mlp.net) > 0 else 64,
-            "n_layers": sum(1 for m in self.mlp.net if isinstance(m, nn.Linear)),
-            "lr": self.lr,
-        }.items()}
+    def to_dict(self) -> dict[str, Any]:
+        state = {
+            k: v.tolist() if isinstance(v, np.ndarray) else v
+            for k, v in {
+                "dim": self.dim,
+                "hidden": self.mlp.net[0].out_features if len(self.mlp.net) > 0 else 64,
+                "n_layers": sum(1 for m in self.mlp.net if isinstance(m, nn.Linear)),
+                "lr": self.lr,
+            }.items()
+        }
         state["state_dict"] = {
             k: v.cpu().numpy().tolist() for k, v in self.mlp.state_dict().items()
         }
         return {"type": "LearnedMetric", **state}
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "LearnedMetric":
-        metric = cls(dim=data["dim"], hidden=data.get("hidden", 64),
-                      n_layers=data.get("n_layers", 3), lr=data.get("lr", 1e-3))
+    def from_dict(cls, data: dict[str, Any]) -> LearnedMetric:
+        metric = cls(
+            dim=data["dim"],
+            hidden=data.get("hidden", 64),
+            n_layers=data.get("n_layers", 3),
+            lr=data.get("lr", 1e-3),
+        )
         state_dict = {}
         for k, v in data["state_dict"].items():
             state_dict[k] = torch.as_tensor(v)
@@ -467,6 +507,7 @@ class LearnedMetric(MetricTensor):
 # ---------------------------------------------------------------------------
 #  Fisher-Rao metric
 # ---------------------------------------------------------------------------
+
 
 class FisherRaoMetric(MetricTensor):
     r"""Fisher-Rao metric on the space of probability distributions.
@@ -483,8 +524,8 @@ class FisherRaoMetric(MetricTensor):
     def __init__(
         self,
         dim: int = 3,
-        fisher_matrix: Optional[np.ndarray] = None,
-        samples_fn: Optional[Callable[[np.ndarray], np.ndarray]] = None,
+        fisher_matrix: np.ndarray | None = None,
+        samples_fn: Callable[[np.ndarray], np.ndarray] | None = None,
     ) -> None:
         """
         Parameters
@@ -517,7 +558,7 @@ class FisherRaoMetric(MetricTensor):
             return np.eye(self.dim, dtype=np.float64)
         return (grads.T @ grads) / len(grads)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "type": "FisherRaoMetric",
             "dim": self.dim,
@@ -525,7 +566,7 @@ class FisherRaoMetric(MetricTensor):
         }
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "FisherRaoMetric":
+    def from_dict(cls, data: dict[str, Any]) -> FisherRaoMetric:
         fm = np.array(data["fisher_matrix"]) if "fisher_matrix" in data else None
         return cls(dim=data.get("dim", 3), fisher_matrix=fm)
 
@@ -533,6 +574,7 @@ class FisherRaoMetric(MetricTensor):
 # ---------------------------------------------------------------------------
 #  Wasserstein metric
 # ---------------------------------------------------------------------------
+
 
 class WassersteinMetric(MetricTensor):
     r"""Wasserstein (optimal transport) metric.
@@ -547,7 +589,7 @@ class WassersteinMetric(MetricTensor):
     plan.
     """
 
-    def __init__(self, n_bins: int = 10, cost_matrix: Optional[np.ndarray] = None) -> None:
+    def __init__(self, n_bins: int = 10, cost_matrix: np.ndarray | None = None) -> None:
         """
         Parameters
         ----------
@@ -569,7 +611,7 @@ class WassersteinMetric(MetricTensor):
         nu: np.ndarray,
         reg: float = 1e-2,
         max_iter: int = 100,
-    ) -> Tuple[np.ndarray, float]:
+    ) -> tuple[np.ndarray, float]:
         """Sinkhorn algorithm for entropy-regularised optimal transport.
 
         Returns the transport plan T and Wasserstein distance W_2.
@@ -618,7 +660,9 @@ class WassersteinMetric(MetricTensor):
             g = np.eye(self.n_bins, dtype=np.float64)
         return g
 
-    def wasserstein_distance(self, mu: np.ndarray, nu: np.ndarray, reg: float = 1e-2) -> float:
+    def wasserstein_distance(
+        self, mu: np.ndarray, nu: np.ndarray, reg: float = 1e-2
+    ) -> float:
         """Compute W_2 distance between two discrete distributions."""
         mu_n = mu[: self.n_bins].copy()
         nu_n = nu[: self.n_bins].copy()
@@ -627,7 +671,7 @@ class WassersteinMetric(MetricTensor):
         _, W2 = self._sinkhorn(mu_n, nu_n, reg=reg)
         return float(np.sqrt(max(W2, 0.0)))
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "type": "WassersteinMetric",
             "n_bins": self.n_bins,
@@ -635,7 +679,7 @@ class WassersteinMetric(MetricTensor):
         }
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "WassersteinMetric":
+    def from_dict(cls, data: dict[str, Any]) -> WassersteinMetric:
         cm = np.array(data["cost_matrix"]) if "cost_matrix" in data else None
         return cls(n_bins=data.get("n_bins", 10), cost_matrix=cm)
 
@@ -643,6 +687,7 @@ class WassersteinMetric(MetricTensor):
 # ---------------------------------------------------------------------------
 #  Metric Tensor Store
 # ---------------------------------------------------------------------------
+
 
 class MetricTensorStore:
     """Manages per-chart metric tensors with Ricci-flow smoothing.
@@ -653,8 +698,8 @@ class MetricTensorStore:
     """
 
     def __init__(self) -> None:
-        self._metrics: Dict[str, MetricTensor] = {}
-        self._chart_data: Dict[str, List[np.ndarray]] = {}  # accumulated points
+        self._metrics: dict[str, MetricTensor] = {}
+        self._chart_data: dict[str, list[np.ndarray]] = {}  # accumulated points
 
     def register_metric(self, chart_id: str, metric: MetricTensor) -> None:
         """Register a metric tensor for a given chart."""
@@ -662,12 +707,16 @@ class MetricTensorStore:
             logger.warning("Overwriting existing metric for chart %s", chart_id)
         self._metrics[chart_id] = metric
         self._chart_data.setdefault(chart_id, [])
-        logger.info("Registered metric %s for chart %s", type(metric).__name__, chart_id)
+        logger.info(
+            "Registered metric %s for chart %s", type(metric).__name__, chart_id
+        )
 
     def get_metric(self, chart_id: str) -> MetricTensor:
         """Retrieve the metric tensor for a chart; fallback to Euclidean."""
         if chart_id not in self._metrics:
-            logger.warning("No metric for chart %s, falling back to Euclidean", chart_id)
+            logger.warning(
+                "No metric for chart %s, falling back to Euclidean", chart_id
+            )
             return EuclideanMetric()
         return self._metrics[chart_id]
 
@@ -696,7 +745,9 @@ class MetricTensorStore:
         """
         metric = self._metrics.get(chart_id)
         if metric is None or isinstance(metric, EuclideanMetric):
-            logger.debug("Skipping Ricci flow for chart %s (no non-trivial metric)", chart_id)
+            logger.debug(
+                "Skipping Ricci flow for chart %s (no non-trivial metric)", chart_id
+            )
             return
 
         data = self._chart_data.get(chart_id, [])
@@ -704,7 +755,7 @@ class MetricTensorStore:
             return
 
         # Compute average Ricci correction over stored points
-        points = np.array(data[-min(len(data), 50):])  # use last 50 points
+        points = np.array(data[-min(len(data), 50) :])  # use last 50 points
         n = metric.evaluate(points[0]).shape[0]
 
         ricci_avg = np.zeros((n, n), dtype=np.float64)
@@ -725,7 +776,9 @@ class MetricTensorStore:
             eigvals = np.maximum(eigvals, 1e-8)
             new_g = eigvecs @ np.diag(eigvals) @ eigvecs.T
         except np.linalg.LinAlgError:
-            logger.warning("Ricci flow step failed for chart %s, keeping old metric", chart_id)
+            logger.warning(
+                "Ricci flow step failed for chart %s, keeping old metric", chart_id
+            )
             return
 
         # Replace with a DiagonalMetric using the eigenvalues
@@ -737,7 +790,7 @@ class MetricTensorStore:
         source_chart: str,
         target_chart: str,
         transition_map: Callable[[np.ndarray], np.ndarray],
-        reference_point: Optional[np.ndarray] = None,
+        reference_point: np.ndarray | None = None,
     ) -> np.ndarray:
         r"""Covariantly transform a metric between charts.
 
@@ -749,7 +802,9 @@ class MetricTensorStore:
         We approximate the Jacobian numerically.
         """
         metric = self.get_metric(source_chart)
-        dim = metric.evaluate(np.zeros(max(metric.dim if hasattr(metric, 'dim') else 3, 1))).shape[0]
+        dim = metric.evaluate(
+            np.zeros(max(metric.dim if hasattr(metric, "dim") else 3, 1))
+        ).shape[0]
 
         if reference_point is None:
             reference_point = np.zeros(dim, dtype=np.float64)
@@ -762,13 +817,20 @@ class MetricTensorStore:
             dm = np.zeros(dim)
             dp[i] = eps
             dm[i] = eps
-            J[:, i] = (transition_map(reference_point + dp) - transition_map(reference_point - dm)) / (2.0 * eps)
+            J[:, i] = (
+                transition_map(reference_point + dp)
+                - transition_map(reference_point - dm)
+            ) / (2.0 * eps)
 
         # Inverse Jacobian for pullback: (∂x/∂y) = J^{-1}
         try:
             J_inv = np.linalg.inv(J)
         except np.linalg.LinAlgError:
-            logger.warning("Transition map Jacobian is singular between %s → %s", source_chart, target_chart)
+            logger.warning(
+                "Transition map Jacobian is singular between %s → %s",
+                source_chart,
+                target_chart,
+            )
             return metric.evaluate(reference_point)
 
         g_source = metric.evaluate(reference_point)
@@ -780,18 +842,20 @@ class MetricTensorStore:
         eigvals = np.maximum(eigvals, 1e-8)
         g_target = eigvecs @ np.diag(eigvals) @ eigvecs.T
 
-        logger.debug("Transformed metric from chart %s to %s", source_chart, target_chart)
+        logger.debug(
+            "Transformed metric from chart %s to %s", source_chart, target_chart
+        )
         return g_target
 
-    def list_charts(self) -> List[str]:
+    def list_charts(self) -> list[str]:
         return list(self._metrics.keys())
 
-    def serialize(self) -> Dict[str, Any]:
+    def serialize(self) -> dict[str, Any]:
         return {
             "metrics": {cid: m.to_dict() for cid, m in self._metrics.items()},
         }
 
-    def deserialize(self, data: Dict[str, Any]) -> None:
+    def deserialize(self, data: dict[str, Any]) -> None:
         for cid, md in data.get("metrics", {}).items():
             self._metrics[cid] = MetricTensor.from_dict(md)
             self._chart_data.setdefault(cid, [])

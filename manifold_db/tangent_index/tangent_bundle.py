@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import logging
 import uuid
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 import numpy as np
 from scipy.spatial import KDTree
@@ -43,19 +43,19 @@ class TangentBundle:
 
     def __init__(
         self,
-        intrinsic_dim: Optional[int] = None,
+        intrinsic_dim: int | None = None,
         metric_eps: float = 0.1,
     ) -> None:
         self.intrinsic_dim = intrinsic_dim
         self.metric_eps = metric_eps
 
         # anchor_id → TangentSpace
-        self.tangent_spaces: Dict[str, TangentSpace] = {}
+        self.tangent_spaces: dict[str, TangentSpace] = {}
 
         # For fast nearest-anchor lookup
         self._anchor_coords: np.ndarray = np.empty((0, 0), dtype=np.float64)
-        self._anchor_ids: List[str] = []
-        self._kd_tree: Optional[KDTree] = None
+        self._anchor_ids: list[str] = []
+        self._kd_tree: KDTree | None = None
 
         logger.info("TangentBundle initialised (eps=%.4f)", metric_eps)
 
@@ -87,7 +87,7 @@ class TangentBundle:
         self,
         base_point: np.ndarray,
         data_neighbors: np.ndarray,
-        anchor_id: Optional[str] = None,
+        anchor_id: str | None = None,
     ) -> str:
         """
         Create a new tangent space and add it to the bundle.
@@ -118,9 +118,7 @@ class TangentBundle:
         self._anchor_ids.append(anchor_id)
         self._rebuild_kdtree()
 
-        logger.debug(
-            "Added tangent space %s (dim=%d)", anchor_id, ts.dimension
-        )
+        logger.debug("Added tangent space %s (dim=%d)", anchor_id, ts.dimension)
         return anchor_id
 
     def remove_tangent_space(self, anchor_id: str) -> None:
@@ -146,7 +144,7 @@ class TangentBundle:
 
     def nearest_anchor(
         self, data_point: np.ndarray, k: int = 1
-    ) -> List[Tuple[str, float]]:
+    ) -> list[tuple[str, float]]:
         """
         Find the nearest anchor(s) to *data_point*.
 
@@ -191,7 +189,7 @@ class TangentBundle:
 
     def get_optimal_tangent_space(
         self, data_point: np.ndarray, k_neighbors: int = 3
-    ) -> Tuple[TangentSpace, np.ndarray]:
+    ) -> tuple[TangentSpace, np.ndarray]:
         """
         Compute a weighted combination of nearby tangent spaces to
         produce an "optimal" tangent space for *data_point*.
@@ -226,7 +224,7 @@ class TangentBundle:
 
         for i, (aid, dist) in enumerate(anchors):
             ts = self.tangent_spaces[aid]
-            w = 1.0 / (dist ** 2 + 1e-12)
+            w = 1.0 / (dist**2 + 1e-12)
             weights[i] = w
             # Parallel-transport basis to common frame (first anchor)
             if i == 0:
@@ -265,12 +263,10 @@ class TangentBundle:
             blended_metric += weights[i] * m
         combined_ts.metric_tensor = 0.5 * (blended_metric + blended_metric.T)
 
-        logger.debug(
-            "Optimal TS built from %d anchors, weights=%s", k, weights
-        )
+        logger.debug("Optimal TS built from %d anchors, weights=%s", k, weights)
         return combined_ts, weights
 
-    def reindex(self, data: np.ndarray, n_anchors: Optional[int] = None) -> None:
+    def reindex(self, data: np.ndarray, n_anchors: int | None = None) -> None:
         """
         Rebuild the entire tangent bundle from scratch.
 
@@ -289,9 +285,7 @@ class TangentBundle:
         if n_anchors is None:
             n_anchors = min(200, max(3, int(np.sqrt(N))))
 
-        logger.info(
-            "Reindexing bundle: N=%d, D=%d, n_anchors=%d", N, D, n_anchors
-        )
+        logger.info("Reindexing bundle: N=%d, D=%d, n_anchors=%d", N, D, n_anchors)
 
         # Clear existing state
         self.tangent_spaces.clear()
@@ -317,9 +311,7 @@ class TangentBundle:
             "Reindex complete: %d tangent spaces created.", len(self.tangent_spaces)
         )
 
-    def coverage_analysis(
-        self, data: np.ndarray
-    ) -> Dict[str, Any]:
+    def coverage_analysis(self, data: np.ndarray) -> dict[str, Any]:
         """
         Analyse how well the tangent bundle covers *data*.
 
@@ -373,7 +365,7 @@ class TangentBundle:
             best_anchor[i] = aid
 
         n_covered = int(np.sum(errors <= self.metric_eps))
-        per_anchor: Dict[str, int] = {}
+        per_anchor: dict[str, int] = {}
         for aid in best_anchor:
             per_anchor[aid] = per_anchor.get(aid, 0) + 1
 
@@ -393,9 +385,7 @@ class TangentBundle:
         return result
 
     @staticmethod
-    def _farthest_point_sampling(
-        data: np.ndarray, n_samples: int
-    ) -> List[int]:
+    def _farthest_point_sampling(data: np.ndarray, n_samples: int) -> list[int]:
         """
         Select *n_samples* anchor indices using farthest-point sampling.
 
@@ -433,7 +423,7 @@ class TangentBundle:
     # Serialisation
     # ------------------------------------------------------------------
 
-    def serialize(self) -> Dict[str, Any]:
+    def serialize(self) -> dict[str, Any]:
         """Serialise the entire bundle to a plain dict."""
         return {
             "intrinsic_dim": self.intrinsic_dim,
@@ -445,7 +435,7 @@ class TangentBundle:
         }
 
     @classmethod
-    def deserialize(cls, d: Dict[str, Any]) -> "TangentBundle":
+    def deserialize(cls, d: dict[str, Any]) -> TangentBundle:
         """Deserialise from a dict produced by ``serialize``."""
         bundle = cls(
             intrinsic_dim=d.get("intrinsic_dim"),

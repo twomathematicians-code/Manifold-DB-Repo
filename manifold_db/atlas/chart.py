@@ -12,8 +12,9 @@ from __future__ import annotations
 
 import logging
 import uuid
-from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from collections.abc import Callable
+from dataclasses import InitVar, dataclass, field
+from typing import Any
 
 import numpy as np
 
@@ -68,21 +69,25 @@ class Chart:
     name: str
     dim: int
     ambient_dim: int
-    embedding_fn: Optional[Callable[[np.ndarray], np.ndarray]] = None
-    inverse_fn: Optional[Callable[[np.ndarray], np.ndarray]] = None
-    bounds: Optional[Tuple[np.ndarray, np.ndarray]] = None
-    anchor_points: Optional[np.ndarray] = None
+    embedding_fn: Callable[[np.ndarray], np.ndarray] | None = None
+    inverse_fn: Callable[[np.ndarray], np.ndarray] | None = None
+    bounds: InitVar[tuple[np.ndarray, np.ndarray] | None] = None
+    anchor_points: InitVar[np.ndarray | None] = None
     chart_id: str = field(default_factory=lambda: str(uuid.uuid4()))
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
     # ------------------------------------------------------------------
     # Internal bookkeeping
     # ------------------------------------------------------------------
-    _min_coords: Optional[np.ndarray] = field(default=None, init=False, repr=False)
-    _max_coords: Optional[np.ndarray] = field(default=None, init=False, repr=False)
-    _data_snapshot: Optional[np.ndarray] = field(default=None, init=False, repr=False)
+    _min_coords: np.ndarray | None = field(default=None, init=False, repr=False)
+    _max_coords: np.ndarray | None = field(default=None, init=False, repr=False)
+    _data_snapshot: np.ndarray | None = field(default=None, init=False, repr=False)
 
-    def __post_init__(self) -> None:
+    def __post_init__(
+        self,
+        bounds: tuple[np.ndarray, np.ndarray] | None,
+        anchor_points: np.ndarray | None,
+    ) -> None:
         """Validate parameters and set up internal state."""
         if self.dim <= 0:
             raise ValueError(f"Intrinsic dimension must be > 0, got {self.dim}")
@@ -92,30 +97,42 @@ class Chart:
             logger.debug(
                 "Chart '%s' (%s): no embedding_fn provided; "
                 "falling back to identity projection (first %d dims).",
-                self.name, self.chart_id, self.dim,
+                self.name,
+                self.chart_id,
+                self.dim,
             )
             self._set_default_embedding()
         if self.inverse_fn is None:
             logger.debug(
                 "Chart '%s' (%s): no inverse_fn provided; "
                 "falling back to zero-padded lift.",
-                self.name, self.chart_id,
+                self.name,
+                self.chart_id,
             )
             self._set_default_inverse()
         # Validate explicitly set bounds
-        if self.bounds is not None:
-            mn, mx = self.bounds
+        if bounds is not None:
+            mn, mx = bounds
             mn = np.asarray(mn, dtype=np.float64)
             mx = np.asarray(mx, dtype=np.float64)
             if mn.shape != (self.dim,):
-                raise ValueError(f"min_coords shape must be ({self.dim},), got {mn.shape}")
+                raise ValueError(
+                    f"min_coords shape must be ({self.dim},), got {mn.shape}"
+                )
             if mx.shape != (self.dim,):
-                raise ValueError(f"max_coords shape must be ({self.dim},), got {mx.shape}")
+                raise ValueError(
+                    f"max_coords shape must be ({self.dim},), got {mx.shape}"
+                )
             self._min_coords = mn
             self._max_coords = mx
+        if anchor_points is not None:
+            self.anchor_points = anchor_points
         logger.info(
             "Chart created: name='%s' id='%s' dim=%d ambient_dim=%d",
-            self.name, self.chart_id, self.dim, self.ambient_dim,
+            self.name,
+            self.chart_id,
+            self.dim,
+            self.ambient_dim,
         )
 
     # ------------------------------------------------------------------
@@ -156,7 +173,7 @@ class Chart:
     # Properties
     # ------------------------------------------------------------------
     @property
-    def bounds(self) -> Optional[Tuple[np.ndarray, np.ndarray]]:
+    def bounds(self) -> tuple[np.ndarray, np.ndarray] | None:
         """Axis-aligned bounding box ``(min_coords, max_coords)`` of the chart domain.
 
         If no explicit bounds were supplied and data has been embedded, the
@@ -171,7 +188,7 @@ class Chart:
         return None
 
     @bounds.setter
-    def bounds(self, value: Optional[Tuple[np.ndarray, np.ndarray]]) -> None:
+    def bounds(self, value: tuple[np.ndarray, np.ndarray] | None) -> None:
         if value is None:
             self._min_coords = None
             self._max_coords = None
@@ -199,7 +216,7 @@ class Chart:
         return self._anchor_points_cache
 
     @anchor_points.setter
-    def anchor_points(self, value: Optional[np.ndarray]) -> None:
+    def anchor_points(self, value: np.ndarray | None) -> None:
         if value is not None:
             self._anchor_points_cache = np.asarray(value, dtype=np.float64)
             if self._anchor_points_cache.ndim == 1:
@@ -212,7 +229,7 @@ class Chart:
         else:
             self._anchor_points_cache = None
 
-    _anchor_points_cache: Optional[np.ndarray] = field(
+    _anchor_points_cache: np.ndarray | None = field(
         default=None, init=False, repr=False
     )
 
@@ -331,7 +348,7 @@ class Chart:
     # ------------------------------------------------------------------
     # Serialization
     # ------------------------------------------------------------------
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Serialize the chart to a JSON-serialisable dictionary.
 
         Callable ``embedding_fn`` / ``inverse_fn`` are stored as string
@@ -339,11 +356,11 @@ class Chart:
         caller is responsible for separate persistence.
         """
         b = self.bounds
-        bounds_list: Optional[List[Any]] = None
+        bounds_list: list[Any] | None = None
         if b is not None:
             bounds_list = [b[0].tolist(), b[1].tolist()]
         ap = self._anchor_points_cache
-        anchors_list: Optional[List[Any]] = None
+        anchors_list: list[Any] | None = None
         if ap is not None:
             anchors_list = ap.tolist()
         emb_desc = "default" if self._is_default_embedding else None
@@ -361,7 +378,7 @@ class Chart:
         }
 
     @classmethod
-    def from_dict(cls, d: Dict[str, Any]) -> "Chart":
+    def from_dict(cls, d: dict[str, Any]) -> Chart:
         """Reconstruct a chart from a serialised dictionary.
 
         Parameters
@@ -401,16 +418,18 @@ class Chart:
     @property
     def _is_default_embedding(self) -> bool:
         """True if the current embedding is the auto-generated default."""
-        return self.embedding_fn is not None and getattr(
-            self.embedding_fn, "__name__", ""
-        ) == "_embed"
+        return (
+            self.embedding_fn is not None
+            and getattr(self.embedding_fn, "__name__", "") == "_embed"
+        )
 
     @property
     def _is_default_inverse(self) -> bool:
         """True if the current inverse is the auto-generated default."""
-        return self.inverse_fn is not None and getattr(
-            self.inverse_fn, "__name__", ""
-        ) == "_inverse"
+        return (
+            self.inverse_fn is not None
+            and getattr(self.inverse_fn, "__name__", "") == "_inverse"
+        )
 
     def __repr__(self) -> str:
         return (
@@ -418,7 +437,7 @@ class Chart:
             f"dim={self.dim}, ambient_dim={self.ambient_dim})"
         )
 
-    def summary(self) -> Dict[str, Any]:
+    def summary(self) -> dict[str, Any]:
         """Return a human-readable summary dictionary."""
         b = self.bounds
         return {

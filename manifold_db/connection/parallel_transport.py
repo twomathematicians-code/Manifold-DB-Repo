@@ -11,15 +11,10 @@ from __future__ import annotations
 
 import logging
 import math
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from collections.abc import Callable
+from typing import Any
 
 import numpy as np
-
-try:
-    import torch
-    _HAS_TORCH = True
-except ImportError:
-    _HAS_TORCH = False
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +22,7 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 #  Levi-Civita Connection
 # ---------------------------------------------------------------------------
+
 
 class LeviCivitaConnection:
     r"""Levi-Civita (torsion-free, metric-compatible) connection.
@@ -75,14 +71,23 @@ class LeviCivitaConnection:
             for j in range(n):
                 for k in range(n):
                     val = 0.0
-                    for l in range(n):
+                    for idx_l in range(n):
                         e_j = _basis(j, n)
                         e_k = _basis(k, n)
-                        e_l = _basis(l, n)
-                        dg_lk_j = (metric_fn(point + eps * e_j)[l, k] - metric_fn(point - eps * e_j)[l, k]) / (2.0 * eps)
-                        dg_lj_k = (metric_fn(point + eps * e_k)[l, j] - metric_fn(point - eps * e_k)[l, j]) / (2.0 * eps)
-                        dg_jk_l = (metric_fn(point + eps * e_l)[j, k] - metric_fn(point - eps * e_l)[j, k]) / (2.0 * eps)
-                        val += g_inv[i, l] * (dg_lk_j + dg_lj_k - dg_jk_l)
+                        e_l = _basis(idx_l, n)
+                        dg_lk_j = (
+                            metric_fn(point + eps * e_j)[idx_l, k]
+                            - metric_fn(point - eps * e_j)[idx_l, k]
+                        ) / (2.0 * eps)
+                        dg_lj_k = (
+                            metric_fn(point + eps * e_k)[idx_l, j]
+                            - metric_fn(point - eps * e_k)[idx_l, j]
+                        ) / (2.0 * eps)
+                        dg_jk_l = (
+                            metric_fn(point + eps * e_l)[j, k]
+                            - metric_fn(point - eps * e_l)[j, k]
+                        ) / (2.0 * eps)
+                        val += g_inv[i, idx_l] * (dg_lk_j + dg_lj_k - dg_jk_l)
                     Gamma[i, j, k] = 0.5 * val
         return Gamma
 
@@ -134,15 +139,15 @@ class LeviCivitaConnection:
 
         # Mid-point approximation
         mid = 0.5 * (p + q)
-        g_mid = metric_fn(mid)
-
         delta = q - p
         eps = np.linalg.norm(delta)
         if eps < 1e-14:
             return v.copy()
 
         # Compute connection coefficient at midpoint
-        Gamma_mid = self.connection_coefficients(mid, metric_fn, eps=min(1e-4, eps * 0.01))
+        Gamma_mid = self.connection_coefficients(
+            mid, metric_fn, eps=min(1e-4, eps * 0.01)
+        )
 
         # Parallel transport equation: dv^i/ds = -Gamma^i_jk * v^j * delta^k
         dv = np.zeros_like(v)
@@ -167,7 +172,7 @@ class LeviCivitaConnection:
         start: np.ndarray,
         end: np.ndarray,
         metric_fn: Callable[[np.ndarray], np.ndarray],
-        christoffel_fn: Optional[Callable[[np.ndarray], np.ndarray]] = None,
+        christoffel_fn: Callable[[np.ndarray], np.ndarray] | None = None,
         n_steps: int = 50,
     ) -> np.ndarray:
         """Transport *vector* along the geodesic from *start* to *end*.
@@ -196,7 +201,9 @@ class LeviCivitaConnection:
         v = np.asarray(vector, dtype=np.float64).copy()
         x = np.asarray(start, dtype=np.float64).copy()
         direction = np.asarray(end, dtype=np.float64) - x
-        geo_v = direction / (np.linalg.norm(direction) + 1e-16)  # initial geodesic velocity
+        geo_v = direction / (
+            np.linalg.norm(direction) + 1e-16
+        )  # initial geodesic velocity
         dt = 1.0 / n_steps
 
         for _ in range(n_steps):
@@ -243,7 +250,7 @@ class LeviCivitaConnection:
         direction: np.ndarray,
         point: np.ndarray,
         metric_fn: Callable[[np.ndarray], np.ndarray],
-        christoffel_fn: Optional[Callable[[np.ndarray], np.ndarray]] = None,
+        christoffel_fn: Callable[[np.ndarray], np.ndarray] | None = None,
         eps: float = 1e-5,
     ) -> np.ndarray:
         r"""Compute the covariant derivative ∇_direction V at *point*.
@@ -260,7 +267,9 @@ class LeviCivitaConnection:
         # Partial derivative of V in direction d_dir
         dV = np.zeros(n, dtype=np.float64)
         for i in range(n):
-            dV = (vector_field(point + eps * d_dir) - vector_field(point - eps * d_dir)) / (2.0 * eps)
+            dV = (
+                vector_field(point + eps * d_dir) - vector_field(point - eps * d_dir)
+            ) / (2.0 * eps)
 
         # Add Christoffel correction
         if christoffel_fn is not None:
@@ -287,9 +296,9 @@ class LeviCivitaConnection:
         source_chart: str,
         target_chart: str,
         transition_map: Callable[[np.ndarray], np.ndarray],
-        reference_point: Optional[np.ndarray] = None,
-        metric_fn_source: Optional[Callable[[np.ndarray], np.ndarray]] = None,
-        metric_fn_target: Optional[Callable[[np.ndarray], np.ndarray]] = None,
+        reference_point: np.ndarray | None = None,
+        metric_fn_source: Callable[[np.ndarray], np.ndarray] | None = None,
+        metric_fn_target: Callable[[np.ndarray], np.ndarray] | None = None,
     ) -> np.ndarray:
         """Transport a tangent vector across chart boundaries.
 
@@ -307,7 +316,10 @@ class LeviCivitaConnection:
         J = np.zeros((dim, dim), dtype=np.float64)
         for j in range(dim):
             e_j = _basis(j, dim)
-            J[:, j] = (transition_map(reference_point + eps * e_j) - transition_map(reference_point - eps * e_j)) / (2.0 * eps)
+            J[:, j] = (
+                transition_map(reference_point + eps * e_j)
+                - transition_map(reference_point - eps * e_j)
+            ) / (2.0 * eps)
 
         # Transform vector: v' = J · v
         v_transformed = J @ vector
@@ -321,7 +333,9 @@ class LeviCivitaConnection:
             if new_len > 1e-14:
                 v_transformed *= orig_len / new_len
 
-        logger.debug("Transported vector across charts %s → %s", source_chart, target_chart)
+        logger.debug(
+            "Transported vector across charts %s → %s", source_chart, target_chart
+        )
         return v_transformed
 
     # ---- batch transport with torch --------------------------------------
@@ -329,7 +343,7 @@ class LeviCivitaConnection:
     def transport_batch(
         self,
         vectors: np.ndarray,
-        paths: List[np.ndarray],
+        paths: list[np.ndarray],
         metric_fn: Callable[[np.ndarray], np.ndarray],
     ) -> np.ndarray:
         """Batch parallel transport using PyTorch for vectorised computation.
@@ -356,6 +370,7 @@ class LeviCivitaConnection:
 #  Schema Transport
 # ---------------------------------------------------------------------------
 
+
 class SchemaTransport:
     """Transport vectors between different schema versions.
 
@@ -364,10 +379,10 @@ class SchemaTransport:
     can be mapped consistently across schema migrations.
     """
 
-    def __init__(self, connection: Optional[LeviCivitaConnection] = None) -> None:
+    def __init__(self, connection: LeviCivitaConnection | None = None) -> None:
         self.connection = connection or LeviCivitaConnection()
-        self._schema_charts: Dict[str, np.ndarray] = {}  # schema_id → reference point
-        self._schema_metrics: Dict[str, Callable[[np.ndarray], np.ndarray]] = {}
+        self._schema_charts: dict[str, np.ndarray] = {}  # schema_id → reference point
+        self._schema_metrics: dict[str, Callable[[np.ndarray], np.ndarray]] = {}
 
     def register_schema(
         self,
@@ -461,13 +476,16 @@ class SchemaTransport:
         """Batch version of :meth:`transport_query`."""
         results = []
         for i in range(len(coords_batch)):
-            results.append(self.transport_query(coords_batch[i], old_schema, new_schema, n_steps))
+            results.append(
+                self.transport_query(coords_batch[i], old_schema, new_schema, n_steps)
+            )
         return np.array(results)
 
 
 # ---------------------------------------------------------------------------
 #  Temporal Transport
 # ---------------------------------------------------------------------------
+
 
 class TemporalTransport:
     """Transport vectors along the temporal dimension.
@@ -479,8 +497,10 @@ class TemporalTransport:
 
     def __init__(
         self,
-        connection: Optional[LeviCivitaConnection] = None,
-        temporal_metric_fn: Optional[Callable[[float], Callable[[np.ndarray], np.ndarray]]] = None,
+        connection: LeviCivitaConnection | None = None,
+        temporal_metric_fn: (
+            Callable[[float], Callable[[np.ndarray], np.ndarray]] | None
+        ) = None,
     ) -> None:
         """
         Parameters
@@ -505,7 +525,7 @@ class TemporalTransport:
         vector: np.ndarray,
         t_source: float,
         t_target: float,
-        reference_curve: Optional[np.ndarray] = None,
+        reference_curve: np.ndarray | None = None,
         n_steps: int = 30,
     ) -> np.ndarray:
         """Transport a tangent vector from time t_source to t_target.
@@ -533,16 +553,16 @@ class TemporalTransport:
 
         # Build temporal path
         times = np.linspace(t_source, t_target, n_steps + 1)
-        dt = times[1] - times[0] if n_steps > 0 else 0.0
-
         if reference_curve is not None:
             path = np.asarray(reference_curve, dtype=np.float64)
             if len(path) != n_steps + 1:
                 # Interpolate path to match n_steps+1 points
                 from scipy.interpolate import interp1d
+
                 orig_t = np.linspace(t_source, t_target, len(path))
-                interp_fn = interp1d(orig_t, path, axis=0, kind="linear",
-                                      fill_value="extrapolate")
+                interp_fn = interp1d(
+                    orig_t, path, axis=0, kind="linear", fill_value="extrapolate"
+                )
                 path = interp_fn(times)
         else:
             # Straight-line path in coordinate space
@@ -574,7 +594,9 @@ class TemporalTransport:
 
                     # Length preservation
                     g0 = self._get_metric(times[step])(path[step])
-                    g1 = self._get_metric(times[step + 1])(path[step + 1] if step + 1 < len(path) else path[-1])
+                    g1 = self._get_metric(times[step + 1])(
+                        path[step + 1] if step + 1 < len(path) else path[-1]
+                    )
                     orig_len = math.sqrt(max(vector @ g0 @ vector, 1e-16))
                     new_len = math.sqrt(max(v @ g1 @ v, 1e-16))
                     if new_len > 1e-14:
@@ -613,6 +635,7 @@ class TemporalTransport:
 # ---------------------------------------------------------------------------
 #  Helpers
 # ---------------------------------------------------------------------------
+
 
 def _basis(i: int, n: int) -> np.ndarray:
     """Return the i-th standard basis vector in R^n."""

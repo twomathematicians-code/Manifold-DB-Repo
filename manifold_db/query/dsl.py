@@ -6,11 +6,11 @@ parallel transport, and cross-modal retrieval across manifold atlases.
 
 from __future__ import annotations
 
-import re
 import logging
+import re
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any
 
 import numpy as np
 
@@ -21,8 +21,10 @@ logger = logging.getLogger(__name__)
 # Enums
 # ──────────────────────────────────────────────────────────────
 
+
 class MetricType(str, Enum):
     """Supported distance metrics on the manifold."""
+
     GEODESIC = "geodesic"
     EUCLIDEAN = "euclidean"
     COSINE = "cosine"
@@ -33,6 +35,7 @@ class MetricType(str, Enum):
 
 class QueryType(str, Enum):
     """Classification of query types."""
+
     SELECT = "select"
     TANGENT = "tangent"
     CROSS_MODAL = "cross_modal"
@@ -42,7 +45,8 @@ class QueryType(str, Enum):
 
 class CostTier(str, Enum):
     """Rough cost tiers for query planning."""
-    CHEAP = "cheap"       # < 1 ms tangent-only lookup
+
+    CHEAP = "cheap"  # < 1 ms tangent-only lookup
     MODERATE = "moderate"  # ~10 ms with geodesic refinement
     EXPENSIVE = "expensive"  # ~100 ms cross-modal + transport
     VERY_EXPENSIVE = "very_expensive"  # > 100 ms full geodesic scan
@@ -52,11 +56,13 @@ class CostTier(str, Enum):
 # Query AST Nodes
 # ──────────────────────────────────────────────────────────────
 
+
 @dataclass
 class GeodesicWhereClause:
     """WHERE clause using geodesic distance on the manifold."""
+
     embedding_field: str = "embedding"
-    query_point: Optional[np.ndarray] = None
+    query_point: np.ndarray | None = None
     epsilon: float = 1.0
     operator: str = "<"
     metric: MetricType = MetricType.GEODESIC
@@ -90,18 +96,20 @@ class GeodesicWhereClause:
             # Default to euclidean as approximation
             return float(np.linalg.norm(point - self.query_point))
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "type": "geodesic_where",
             "embedding_field": self.embedding_field,
-            "query_point": self.query_point.tolist() if self.query_point is not None else None,
+            "query_point": (
+                self.query_point.tolist() if self.query_point is not None else None
+            ),
             "epsilon": self.epsilon,
             "operator": self.operator,
             "metric": self.metric.value,
         }
 
     @classmethod
-    def from_dict(cls, d: Dict[str, Any]) -> GeodesicWhereClause:
+    def from_dict(cls, d: dict[str, Any]) -> GeodesicWhereClause:
         qp = d.get("query_point")
         return cls(
             embedding_field=d.get("embedding_field", "embedding"),
@@ -115,15 +123,16 @@ class GeodesicWhereClause:
 @dataclass
 class SelectQuery:
     """SELECT query with optional geodesic WHERE clause."""
-    fields: List[str] = field(default_factory=lambda: ["*"])
-    source: str = "observations"
-    where: Optional[GeodesicWhereClause] = None
-    atlas_name: Optional[str] = None
-    metric: MetricType = MetricType.GEODESIC
-    order_by: Optional[str] = None
-    limit: Optional[int] = None
 
-    def to_dict(self) -> Dict[str, Any]:
+    fields: list[str] = field(default_factory=lambda: ["*"])
+    source: str = "observations"
+    where: GeodesicWhereClause | None = None
+    atlas_name: str | None = None
+    metric: MetricType = MetricType.GEODESIC
+    order_by: str | None = None
+    limit: int | None = None
+
+    def to_dict(self) -> dict[str, Any]:
         return {
             "type": "select",
             "fields": self.fields,
@@ -139,14 +148,15 @@ class SelectQuery:
 @dataclass
 class TangentQuery:
     """Query operating entirely in a single chart's tangent space."""
+
     chart_id: str
     query_point: np.ndarray
     epsilon: float = 1.0
     metric: MetricType = MetricType.EUCLIDEAN
-    top_k: Optional[int] = None
-    fields: List[str] = field(default_factory=lambda: ["*"])
+    top_k: int | None = None
+    fields: list[str] = field(default_factory=lambda: ["*"])
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "type": "tangent",
             "chart_id": self.chart_id,
@@ -161,21 +171,24 @@ class TangentQuery:
 @dataclass
 class CrossModalQuery:
     """Cross-modal retrieval with parallel transport between charts."""
+
     source_modality: str
     target_modality: str
-    query_point: Optional[np.ndarray] = None
+    query_point: np.ndarray | None = None
     transport_via: str = "overlap_region"
     top_k: int = 10
     metric: MetricType = MetricType.GEODESIC
-    source_chart: Optional[str] = None
-    target_chart: Optional[str] = None
+    source_chart: str | None = None
+    target_chart: str | None = None
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "type": "cross_modal",
             "source_modality": self.source_modality,
             "target_modality": self.target_modality,
-            "query_point": self.query_point.tolist() if self.query_point is not None else None,
+            "query_point": (
+                self.query_point.tolist() if self.query_point is not None else None
+            ),
             "transport_via": self.transport_via,
             "top_k": self.top_k,
             "metric": self.metric.value,
@@ -187,19 +200,22 @@ class CrossModalQuery:
 @dataclass
 class TransportQuery:
     """Pure parallel transport of a vector between charts."""
+
     vector: np.ndarray
     source_chart: str
     target_chart: str
-    path_points: Optional[List[np.ndarray]] = None
-    via_overlap: Optional[str] = None
+    path_points: list[np.ndarray] | None = None
+    via_overlap: str | None = None
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "type": "transport",
             "vector": self.vector.tolist(),
             "source_chart": self.source_chart,
             "target_chart": self.target_chart,
-            "path_points": [p.tolist() for p in self.path_points] if self.path_points else None,
+            "path_points": (
+                [p.tolist() for p in self.path_points] if self.path_points else None
+            ),
             "via_overlap": self.via_overlap,
         }
 
@@ -208,33 +224,35 @@ class TransportQuery:
 # Executed Query
 # ──────────────────────────────────────────────────────────────
 
+
 @dataclass
 class ManifoldQuery:
     """
     Fully-compiled query ready for execution by the QueryEngine.
     Carries all parameters the engine needs: chart, metric, point, k, etc.
     """
+
     query_type: QueryType = QueryType.SELECT
-    chart_id: Optional[str] = None
+    chart_id: str | None = None
     metric_type: MetricType = MetricType.GEODESIC
-    query_point: Optional[np.ndarray] = None
+    query_point: np.ndarray | None = None
     epsilon: float = 1.0
     k: int = 10
-    modality: Optional[str] = None
-    target_modality: Optional[str] = None
-    fields: List[str] = field(default_factory=lambda: ["*"])
-    atlas_name: Optional[str] = None
-    transport_via: Optional[str] = None
-    source_chart: Optional[str] = None
-    target_chart: Optional[str] = None
-    transport_vector: Optional[np.ndarray] = None
-    order_by: Optional[str] = None
-    limit: Optional[int] = None
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    modality: str | None = None
+    target_modality: str | None = None
+    fields: list[str] = field(default_factory=lambda: ["*"])
+    atlas_name: str | None = None
+    transport_via: str | None = None
+    source_chart: str | None = None
+    target_chart: str | None = None
+    transport_vector: np.ndarray | None = None
+    order_by: str | None = None
+    limit: int | None = None
+    metadata: dict[str, Any] = field(default_factory=dict)
 
     # ── validation ────────────────────────────────────────────
 
-    def validate(self) -> Tuple[bool, str]:
+    def validate(self) -> tuple[bool, str]:
         """Check whether this query is valid and return (ok, message)."""
         if self.query_point is not None:
             if not isinstance(self.query_point, np.ndarray):
@@ -243,7 +261,10 @@ class ManifoldQuery:
                 except Exception as e:
                     return False, f"query_point is not convertible to ndarray: {e}"
             if self.query_point.ndim != 1:
-                return False, f"query_point must be 1-D, got ndim={self.query_point.ndim}"
+                return (
+                    False,
+                    f"query_point must be 1-D, got ndim={self.query_point.ndim}",
+                )
             if self.query_point.size == 0:
                 return False, "query_point must not be empty"
 
@@ -267,7 +288,7 @@ class ManifoldQuery:
 
     # ── cost estimation ──────────────────────────────────────
 
-    def estimate_cost(self, chart_sizes: Optional[Dict[str, int]] = None) -> CostTier:
+    def estimate_cost(self, chart_sizes: dict[str, int] | None = None) -> CostTier:
         """Return a rough cost tier based on query type and assumed chart sizes."""
         if self.query_type == QueryType.TANGENT:
             return CostTier.CHEAP
@@ -285,12 +306,14 @@ class ManifoldQuery:
 
     # ── serialisation ────────────────────────────────────────
 
-    def to_dict(self) -> Dict[str, Any]:
-        d: Dict[str, Any] = {
+    def to_dict(self) -> dict[str, Any]:
+        d: dict[str, Any] = {
             "query_type": self.query_type.value,
             "chart_id": self.chart_id,
             "metric_type": self.metric_type.value,
-            "query_point": self.query_point.tolist() if self.query_point is not None else None,
+            "query_point": (
+                self.query_point.tolist() if self.query_point is not None else None
+            ),
             "epsilon": self.epsilon,
             "k": self.k,
             "modality": self.modality,
@@ -300,7 +323,11 @@ class ManifoldQuery:
             "transport_via": self.transport_via,
             "source_chart": self.source_chart,
             "target_chart": self.target_chart,
-            "transport_vector": self.transport_vector.tolist() if self.transport_vector is not None else None,
+            "transport_vector": (
+                self.transport_vector.tolist()
+                if self.transport_vector is not None
+                else None
+            ),
             "order_by": self.order_by,
             "limit": self.limit,
             "metadata": self.metadata,
@@ -308,7 +335,7 @@ class ManifoldQuery:
         return d
 
     @classmethod
-    def from_dict(cls, d: Dict[str, Any]) -> ManifoldQuery:
+    def from_dict(cls, d: dict[str, Any]) -> ManifoldQuery:
         qp = d.get("query_point")
         tv = d.get("transport_vector")
         return cls(
@@ -336,6 +363,7 @@ class ManifoldQuery:
 # Query Parser
 # ──────────────────────────────────────────────────────────────
 
+
 class QueryParser:
     """
     Parses SQL-like strings into ManifoldQuery objects.
@@ -358,13 +386,16 @@ class QueryParser:
         |([A-Za-z_]\w*)    # identifier / keyword
         |([<>=!]+)          # comparison operator
         |(\*)               # wildcard
-        """, re.IGNORECASE
+        """,
+        re.IGNORECASE,
     )
 
     def parse(self, text: str) -> ManifoldQuery:
         """Parse a SQL-like query string into a ManifoldQuery."""
         tokens = self._tokenize(text)
-        tokens_upper = [t.upper() if not t.startswith(("[", "'", '"')) else t for t in tokens]
+        tokens_upper = [
+            t.upper() if not t.startswith(("[", "'", '"')) else t for t in tokens
+        ]
 
         # Determine query type from first token
         if "TANGENT_QUERY" in tokens_upper:
@@ -379,7 +410,7 @@ class QueryParser:
     # ── tokenizer ─────────────────────────────────────────────
 
     @classmethod
-    def _tokenize(cls, text: str) -> List[str]:
+    def _tokenize(cls, text: str) -> list[str]:
         matches = cls._TOKEN_RE.findall(text)
         tokens = []
         for group in matches:
@@ -391,7 +422,7 @@ class QueryParser:
 
     # ── SELECT ────────────────────────────────────────────────
 
-    def _parse_select(self, tokens: List[str], upper: List[str]) -> ManifoldQuery:
+    def _parse_select(self, tokens: list[str], upper: list[str]) -> ManifoldQuery:
         fields = ["*"]
         atlas_name = None
         metric = MetricType.GEODESIC
@@ -632,6 +663,7 @@ class QueryParser:
 # Fluent Query Builder
 # ──────────────────────────────────────────────────────────────
 
+
 class QueryBuilder:
     """
     Fluent builder API for constructing ManifoldQuery objects programmatically.
@@ -661,20 +693,23 @@ class QueryBuilder:
         self._q.atlas_name = atlas_name
         return self
 
-    def using_metric(self, metric: Union[str, MetricType]) -> QueryBuilder:
+    def using_metric(self, metric: str | MetricType) -> QueryBuilder:
         if isinstance(metric, str):
             metric = MetricType(metric)
         self._q.metric_type = metric
         return self
 
-    def where_geodesic(self, query_point: np.ndarray, epsilon: float = 1.0) -> QueryBuilder:
+    def where_geodesic(
+        self, query_point: np.ndarray, epsilon: float = 1.0
+    ) -> QueryBuilder:
         self._q.query_type = QueryType.SELECT
         self._q.query_point = np.asarray(query_point, dtype=np.float64)
         self._q.epsilon = epsilon
         return self
 
-    def tangent_query(self, chart_id: str, query_point: np.ndarray,
-                      epsilon: float = 1.0) -> QueryBuilder:
+    def tangent_query(
+        self, chart_id: str, query_point: np.ndarray, epsilon: float = 1.0
+    ) -> QueryBuilder:
         self._q.query_type = QueryType.TANGENT
         self._q.chart_id = chart_id
         self._q.query_point = np.asarray(query_point, dtype=np.float64)
@@ -691,8 +726,9 @@ class QueryBuilder:
         self._q.transport_via = via
         return self
 
-    def parallel_transport(self, vector: np.ndarray,
-                           source: str, target: str) -> QueryBuilder:
+    def parallel_transport(
+        self, vector: np.ndarray, source: str, target: str
+    ) -> QueryBuilder:
         self._q.query_type = QueryType.TRANSPORT
         self._q.transport_vector = np.asarray(vector, dtype=np.float64)
         self._q.source_chart = source

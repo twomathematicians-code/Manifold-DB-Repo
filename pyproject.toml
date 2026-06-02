@@ -85,6 +85,20 @@ target-version = "py310"
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "W", "UP"]
 
+[tool.ruff.lint.per-file-ignores]
+"manifold_db/atlas/atlas_builder.py" = ["N"]
+"manifold_db/atlas/transition_map.py" = ["N"]
+"manifold_db/connection/parallel_transport.py" = ["N"]
+"manifold_db/geodesic/distance.py" = ["N"]
+"manifold_db/geodesic/exponential_map.py" = ["N"]
+"manifold_db/geodesic/solver.py" = ["N"]
+"manifold_db/metric/metric_tensor.py" = ["N"]
+"manifold_db/tangent_index/index.py" = ["N"]
+"manifold_db/tangent_index/tangent_bundle.py" = ["N"]
+"manifold_db/tangent_index/tangent_space.py" = ["N"]
+"manifold_db/utils/manifold_learning.py" = ["N"]
+"manifold_db/utils/math_utils.py" = ["N"]
+
 [tool.mypy]
 python_version = "3.10"
 warn_return_any = true

@@ -16,7 +16,7 @@ from __future__ import annotations
 import json
 import logging
 import os
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 import numpy as np
 
@@ -45,12 +45,14 @@ class AtlasManager:
     >>> mgr.add_chart(chart)
     """
 
-    def __init__(self, name: str = "default_atlas", metadata: Optional[Dict[str, Any]] = None) -> None:
+    def __init__(
+        self, name: str = "default_atlas", metadata: dict[str, Any] | None = None
+    ) -> None:
         self.name = name
-        self.metadata: Dict[str, Any] = metadata or {}
-        self._charts: Dict[str, Chart] = {}
-        self._transitions: Dict[Tuple[str, str], TransitionMap] = {}
-        self._builder: Optional[AtlasBuilder] = None
+        self.metadata: dict[str, Any] = metadata or {}
+        self._charts: dict[str, Chart] = {}
+        self._transitions: dict[tuple[str, str], TransitionMap] = {}
+        self._builder: AtlasBuilder | None = None
         logger.info("AtlasManager '%s' initialised.", self.name)
 
     # ------------------------------------------------------------------
@@ -74,7 +76,12 @@ class AtlasManager:
                 f"Chart with id '{chart.chart_id}' already exists in atlas '{self.name}'."
             )
         self._charts[chart.chart_id] = chart
-        logger.info("Added chart '%s' (id=%s) to atlas '%s'.", chart.name, chart.chart_id, self.name)
+        logger.info(
+            "Added chart '%s' (id=%s) to atlas '%s'.",
+            chart.name,
+            chart.chart_id,
+            self.name,
+        )
 
     def remove_chart(self, chart_id: str) -> None:
         """Remove a chart and all associated transition maps.
@@ -92,9 +99,7 @@ class AtlasManager:
         if chart_id not in self._charts:
             raise KeyError(f"Chart '{chart_id}' not found in atlas '{self.name}'.")
         # Remove transitions that reference this chart
-        keys_to_remove = [
-            k for k in self._transitions if chart_id in k
-        ]
+        keys_to_remove = [k for k in self._transitions if chart_id in k]
         for k in keys_to_remove:
             del self._transitions[k]
             logger.debug("Removed transition map %s (chart %s removed).", k, chart_id)
@@ -113,7 +118,7 @@ class AtlasManager:
             raise KeyError(f"Chart '{chart_id}' not found in atlas '{self.name}'.")
         return self._charts[chart_id]
 
-    def get_all_charts(self) -> List[Chart]:
+    def get_all_charts(self) -> list[Chart]:
         """Return all charts in the atlas."""
         return list(self._charts.values())
 
@@ -147,7 +152,10 @@ class AtlasManager:
         self._transitions[key] = tmap
         logger.info(
             "Added transition %s -> %s (type=%s) to atlas '%s'.",
-            src, tgt, type(tmap).__name__, self.name,
+            src,
+            tgt,
+            type(tmap).__name__,
+            self.name,
         )
 
     def get_transition(self, source_id: str, target_id: str) -> TransitionMap:
@@ -165,7 +173,7 @@ class AtlasManager:
             )
         return self._transitions[key]
 
-    def get_all_transition_maps(self) -> List[TransitionMap]:
+    def get_all_transition_maps(self) -> list[TransitionMap]:
         """Return all transition maps in the atlas."""
         return list(self._transitions.values())
 
@@ -175,8 +183,8 @@ class AtlasManager:
     def find_chart(
         self,
         data: np.ndarray,
-        modality: Optional[str] = None,
-    ) -> Optional[Chart]:
+        modality: str | None = None,
+    ) -> Chart | None:
         """Locate the best chart for a given data point.
 
         Strategy:
@@ -206,10 +214,11 @@ class AtlasManager:
         if d.ndim == 1:
             d = d.reshape(1, -1)
 
-        candidates: List[Chart] = []
+        candidates: list[Chart] = []
         if modality is not None:
             candidates = [
-                c for c in self._charts.values()
+                c
+                for c in self._charts.values()
                 if c.metadata.get("modality") == modality
             ]
             if not candidates:
@@ -231,7 +240,7 @@ class AtlasManager:
                 continue
 
         # Fallback: nearest centroid
-        best_chart: Optional[Chart] = None
+        best_chart: Chart | None = None
         best_dist = float("inf")
         for chart in candidates:
             try:
@@ -246,7 +255,8 @@ class AtlasManager:
         if best_chart is not None:
             logger.debug(
                 "find_chart: fallback nearest-centroid to '%s' (dist=%.4f).",
-                best_chart.name, best_dist,
+                best_chart.name,
+                best_dist,
             )
         return best_chart
 
@@ -256,8 +266,8 @@ class AtlasManager:
     def build_atlas(
         self,
         data: np.ndarray,
-        modality_labels: Optional[np.ndarray] = None,
-        modality: Optional[str] = None,
+        modality_labels: np.ndarray | None = None,
+        modality: str | None = None,
         **builder_kwargs: Any,
     ) -> None:
         """Automatically construct an atlas from data.
@@ -277,9 +287,7 @@ class AtlasManager:
             Forwarded to :meth:`AtlasBuilder.build`.
         """
         data = np.asarray(data, dtype=np.float64)
-        logger.info(
-            "Building atlas '%s' from data of shape %s.", self.name, data.shape
-        )
+        logger.info("Building atlas '%s' from data of shape %s.", self.name, data.shape)
         self._builder = AtlasBuilder()
         atlas = self._builder.build(
             data, modality_labels=modality_labels, **builder_kwargs
@@ -294,7 +302,8 @@ class AtlasManager:
             self.add_transition_map(tmap)
         logger.info(
             "Atlas build complete: %d charts, %d transitions.",
-            len(self._charts), len(self._transitions),
+            len(self._charts),
+            len(self._transitions),
         )
 
     def rebuild_overlaps(self) -> None:
@@ -307,7 +316,11 @@ class AtlasManager:
         Only linear/affine fits are performed here; for neural transitions
         re-run :meth:`build_atlas`.
         """
-        logger.info("Rebuilding overlaps for atlas '%s' (%d charts).", self.name, len(self._charts))
+        logger.info(
+            "Rebuilding overlaps for atlas '%s' (%d charts).",
+            self.name,
+            len(self._charts),
+        )
         charts = list(self._charts.values())
         if self._builder is None:
             self._builder = AtlasBuilder()
@@ -321,28 +334,34 @@ class AtlasManager:
                     if ci.dim != cj.dim:
                         logger.debug(
                             "Charts '%s' and '%s' have different dims (%d vs %d); skipping.",
-                            ci.name, cj.name, ci.dim, cj.dim,
+                            ci.name,
+                            cj.name,
+                            ci.dim,
+                            cj.dim,
                         )
                         continue
                     tmap = self._builder.fit_transition_map_simple(ci, cj)
                     if tmap is not None:
                         self.add_transition_map(tmap)
                 else:
-                    existing = self._transitions.get(key_ij) or self._transitions.get(key_ji)
+                    existing = self._transitions.get(key_ij) or self._transitions.get(
+                        key_ji
+                    )
                     if existing is not None:
                         ov = self._builder.compute_overlap_bounds(ci, cj)
                         if ov is not None:
                             existing.overlap_region = ov
                             logger.debug(
                                 "Updated overlap region for %s -> %s.",
-                                existing.source_chart_id, existing.target_chart_id,
+                                existing.source_chart_id,
+                                existing.target_chart_id,
                             )
         logger.info("Overlap rebuild complete.")
 
     # ------------------------------------------------------------------
     # Summary & introspection
     # ------------------------------------------------------------------
-    def atlas_summary(self) -> Dict[str, Any]:
+    def atlas_summary(self) -> dict[str, Any]:
         """Return a dictionary of atlas statistics.
 
         Includes chart count, transition count, dimension ranges, coverage
@@ -357,9 +376,13 @@ class AtlasManager:
             "n_charts": len(charts),
             "n_transitions": len(transitions),
             "dim_range": (min(dims), max(dims)) if dims else (0, 0),
-            "ambient_dim_range": (min(ambient_dims), max(ambient_dims)) if ambient_dims else (0, 0),
+            "ambient_dim_range": (
+                (min(ambient_dims), max(ambient_dims)) if ambient_dims else (0, 0)
+            ),
             "chart_ids": [c.chart_id for c in charts],
-            "transition_pairs": [(t.source_chart_id, t.target_chart_id) for t in transitions],
+            "transition_pairs": [
+                (t.source_chart_id, t.target_chart_id) for t in transitions
+            ],
             "charts": [c.summary() for c in charts],
             "metadata": self.metadata,
         }
@@ -367,7 +390,7 @@ class AtlasManager:
     # ------------------------------------------------------------------
     # Persistence
     # ------------------------------------------------------------------
-    def serialize(self) -> Dict[str, Any]:
+    def serialize(self) -> dict[str, Any]:
         """Serialize the entire atlas to a JSON-friendly dictionary."""
         charts_serial = [c.to_dict() for c in self._charts.values()]
         transitions_serial = [t.to_dict() for t in self._transitions.values()]
@@ -378,7 +401,7 @@ class AtlasManager:
             "transitions": transitions_serial,
         }
 
-    def deserialize(self, d: Dict[str, Any]) -> None:
+    def deserialize(self, d: dict[str, Any]) -> None:
         """Restore atlas state from a serialised dictionary.
 
         Clears any existing charts/transitions before loading.
@@ -400,7 +423,9 @@ class AtlasManager:
             self._transitions[(tmap.source_chart_id, tmap.target_chart_id)] = tmap
         logger.info(
             "Deserialized atlas '%s': %d charts, %d transitions.",
-            self.name, len(self._charts), len(self._transitions),
+            self.name,
+            len(self._charts),
+            len(self._transitions),
         )
 
     def save(self, filepath: str) -> None:
@@ -424,7 +449,7 @@ class AtlasManager:
         filepath : str
             Source path.
         """
-        with open(filepath, "r") as f:
+        with open(filepath) as f:
             d = json.load(f)
         self.deserialize(d)
         logger.info("Atlas loaded from %s.", filepath)

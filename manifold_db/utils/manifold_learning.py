@@ -7,17 +7,17 @@ embedding, and quality assessment for manifold-structured data.
 
 from __future__ import annotations
 
+from typing import Any
+
 import numpy as np
-from typing import Optional, Tuple, Dict, Any
-from scipy.spatial import KDTree
 from scipy.sparse import csr_matrix, diags
 from scipy.sparse.linalg import eigsh
-import warnings
-
+from scipy.spatial import KDTree
 
 # ---------------------------------------------------------------------------
 # Intrinsic dimension estimation
 # ---------------------------------------------------------------------------
+
 
 def estimate_intrinsic_dim(
     data: np.ndarray,
@@ -89,7 +89,6 @@ def _mle_dim(data: np.ndarray, k: int = 30) -> int:
 
 def _twonn_dim(data: np.ndarray) -> int:
     """Two-nearest-neighbors estimator (Fausto-Ferrari et al.)."""
-    n = data.shape[0]
     tree = KDTree(data)
     distances, _ = tree.query(data, k=3)  # 0=self, 1=NN1, 2=NN2
     r1 = distances[:, 1]
@@ -114,10 +113,11 @@ def _twonn_dim(data: np.ndarray) -> int:
 # Local PCA
 # ---------------------------------------------------------------------------
 
+
 def local_pca(
     data: np.ndarray,
     k_neighbors: int = 20,
-) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Per-point local PCA for tangent-space estimation.
 
     Parameters
@@ -168,6 +168,7 @@ def local_pca(
 # Diffusion maps
 # ---------------------------------------------------------------------------
 
+
 def diffusion_map(
     data: np.ndarray,
     n_components: int = 2,
@@ -211,7 +212,7 @@ def diffusion_map(
         for j_idx in range(n_neighbors):
             j = _neighbor_index(tree, data[i], j_idx)
             d_ij = distances[i, j_idx]
-            K[i, j] = np.exp(-d_ij ** 2 / (bandwidths[i, 0] * bandwidths[j, 0]))
+            K[i, j] = np.exp(-(d_ij**2) / (bandwidths[i, 0] * bandwidths[j, 0]))
             K[j, i] = K[i, j]
 
     # Anisotropic normalization q_i = sum_j K_ij
@@ -239,7 +240,7 @@ def diffusion_map(
 
     # Skip trivial eigenvalue (=1) and take next n_components
     idx = np.argsort(-eigenvalues)
-    idx = idx[1: n_components + 1]  # skip the first (lambda=1)
+    idx = idx[1 : n_components + 1]  # skip the first (lambda=1)
     embedding = eigenvectors[:, idx]
 
     # Normalize by eigenvalues
@@ -264,6 +265,7 @@ def _neighbor_index(
 # ---------------------------------------------------------------------------
 # Spectral embedding (Laplacian eigenmaps)
 # ---------------------------------------------------------------------------
+
 
 def spectral_embedding(
     data: np.ndarray,
@@ -305,14 +307,13 @@ def spectral_embedding(
     for i in range(n):
         for j_off in range(n_neighbors):
             j = indices[i, j_off]
-            w = np.exp(-distances[i, j_off] ** 2 / (2 * sigma ** 2))
+            w = np.exp(-distances[i, j_off] ** 2 / (2 * sigma**2))
             if w > 1e-12:
                 rows.extend([i, j])
                 cols.extend([j, i])
                 vals.extend([w, w])
 
     W = csr_matrix((vals, (rows, cols)), shape=(n, n))
-    D = diags(np.array(W.sum(axis=1)).ravel(), dtype=np.float64)
     D_inv_sqrt = diags(
         1.0 / np.sqrt(np.maximum(np.array(W.sum(axis=1)).ravel(), 1e-300))
     )
@@ -323,22 +324,21 @@ def spectral_embedding(
     L_sparse = csr_matrix(L_dense)
 
     try:
-        eigenvalues, eigenvectors = eigsh(
-            L_sparse, k=n_components + 1, which="SM"
-        )
+        eigenvalues, eigenvectors = eigsh(L_sparse, k=n_components + 1, which="SM")
     except Exception:
         # Fallback: dense eigendecomposition
         eigenvalues, eigenvectors = np.linalg.eigh(L_dense)
 
     idx = np.argsort(eigenvalues)
     # Skip the first trivial eigenvalue (≈0)
-    idx = idx[1: n_components + 1]
+    idx = idx[1 : n_components + 1]
     return eigenvectors[:, idx]
 
 
 # ---------------------------------------------------------------------------
 # Patch extraction
 # ---------------------------------------------------------------------------
+
 
 def extract_local_patches(
     data: np.ndarray,
@@ -367,7 +367,7 @@ def extract_local_patches(
     patches: list = []
     start = 0
     while start + patch_size <= n:
-        patches.append(data[start: start + patch_size])
+        patches.append(data[start : start + patch_size])
         start += step
     return patches
 
@@ -375,6 +375,7 @@ def extract_local_patches(
 # ---------------------------------------------------------------------------
 # Residual variance
 # ---------------------------------------------------------------------------
+
 
 def compute_residual_variance(
     data: np.ndarray,
@@ -430,10 +431,11 @@ def compute_residual_variance(
 # Manifold quality score
 # ---------------------------------------------------------------------------
 
+
 def manifold_quality_score(
     data: np.ndarray,
-    atlas: Dict[str, Any],
-) -> Dict[str, float]:
+    atlas: dict[str, Any],
+) -> dict[str, float]:
     """Comprehensive quality metric for a manifold atlas.
 
     Evaluates coverage, reconstruction error, dimension consistency, and

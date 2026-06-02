@@ -12,16 +12,13 @@ Public API:
 """
 
 from manifold_db.storage.backend import (
-    StorageBackend,
-    MemoryStorage,
     FileStorage,
+    MemoryStorage,
     SQLiteStorage,
+    StorageBackend,
     StorageManager,
 )
-from manifold_db.storage.data_store import (
-    DataPoint,
-    DataStore,
-)
+from manifold_db.storage.data_store import DataPoint, DataStore
 
 __all__ = [
     "StorageBackend",
