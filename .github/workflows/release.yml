@@ -1,0 +1,184 @@
+# =============================================================================
+# Manifold DB — Release Automation (GitHub Actions)
+# =============================================================================
+# Triggered by version tags (v*).
+# Builds sdist + wheel, creates GitHub Release with assets,
+# builds & pushes Docker image, and publishes to PyPI.
+# =============================================================================
+
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+env:
+  DOCKER_REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+permissions:
+  contents: write       # create GitHub release
+  packages: write       # push Docker image to GHCR
+  id-token: write       # trusted publishing for PyPI
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # 1. Build Python distribution (sdist + wheel)
+  # ---------------------------------------------------------------------------
+  build-package:
+    name: Build Python Package
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0        # needed for setuptools-scm
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install build tools
+        run: |
+          python -m pip install --upgrade pip
+          pip install build twine
+
+      - name: Build sdist and wheel
+        run: python -m build
+
+      - name: Check package integrity
+        run: twine check dist/*
+
+      - name: Upload distribution artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: python-distribution
+          path: dist/
+          retention-days: 30
+
+  # ---------------------------------------------------------------------------
+  # 2. Create GitHub Release
+  # ---------------------------------------------------------------------------
+  github-release:
+    name: Create GitHub Release
+    runs-on: ubuntu-latest
+    needs: build-package
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download distribution artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: python-distribution
+          path: dist/
+
+      - name: Extract version from tag
+        id: version
+        run: echo "VERSION=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+
+      - name: Generate changelog
+        id: changelog
+        run: |
+          # Collect commits since last tag for a simple changelog
+          PREV_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+          if [ -n "$PREV_TAG" ]; then
+            LOG=$(git log "$PREV_TAG"..HEAD --pretty=format:"- %s (%h)" --no-merges 2>/dev/null || echo "- No changelog available")
+          else
+            LOG=$(git log --pretty=format:"- %s (%h)" --no-merges -20 2>/dev/null || echo "- Initial release")
+          fi
+          {
+            echo "BODY<<EOF"
+            echo "## Manifold DB ${{ steps.version.outputs.VERSION }}"
+            echo ""
+            echo "### Changes"
+            echo "$LOG"
+            echo ""
+            echo "### Installation"
+            echo '```bash'
+            echo "pip install manifold-db==${VERSION#v}"
+            echo '```'
+            echo ""
+            echo "### Docker"
+            echo '```bash'
+            echo "docker pull ghcr.io/${{ github.repository }}:${{ steps.version.outputs.VERSION }}"
+            echo '```'
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: Manifold DB ${{ github.ref_name }}
+          body: ${{ steps.changelog.outputs.BODY }}
+          draft: false
+          prerelease: ${{ contains(github.ref_name, 'rc') || contains(github.ref_name, 'beta') || contains(github.ref_name, 'alpha') }}
+          files: dist/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # ---------------------------------------------------------------------------
+  # 3. Build & push Docker image with version tag
+  # ---------------------------------------------------------------------------
+  docker-release:
+    name: Build & Push Docker Image
+    runs-on: ubuntu-latest
+    needs: build-package
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.DOCKER_REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.DOCKER_REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+            type=sha,prefix=
+            type=raw,value=latest
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # ---------------------------------------------------------------------------
+  # 4. Publish to PyPI (via Trusted Publisher)
+  # ---------------------------------------------------------------------------
+  publish-pypi:
+    name: Publish to PyPI
+    runs-on: ubuntu-latest
+    needs: [github-release, docker-release]
+    environment: pypi                     # requires GitHub Environment named "pypi"
+    steps:
+      - name: Download distribution artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: python-distribution
+          path: dist/
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist/
+          # Uses OIDC trusted publishing — no API token needed
+          # See: https://docs.pypi.org/trusted-publishers/

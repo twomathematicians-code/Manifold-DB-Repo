@@ -1,0 +1,108 @@
+# =============================================================================
+# Manifold DB — Pre-commit Hooks
+# =============================================================================
+# Install:  pre-commit install
+# Run all:   pre-commit run --all-files
+# =============================================================================
+
+minimum_pre_commit_version: "3.0.0"
+
+repos:
+  # ---------------------------------------------------------------------------
+  # Ruff — fast Python linter (replaces flake8 + many plugins)
+  # ---------------------------------------------------------------------------
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.5.0
+    hooks:
+      - id: ruff
+        name: ruff (lint)
+        args: [--fix]
+        types: [python]
+
+  # ---------------------------------------------------------------------------
+  # Black — uncompromising code formatter
+  # ---------------------------------------------------------------------------
+  - repo: https://github.com/psf/black
+    rev: "24.4.2"
+    hooks:
+      - id: black
+        name: black (format)
+        language_version: python3
+
+  # ---------------------------------------------------------------------------
+  # mypy — static type checker
+  # ---------------------------------------------------------------------------
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.10.1
+    hooks:
+      - id: mypy
+        name: mypy (type check)
+        additional_dependencies:
+          - numpy
+          - types-PyYAML
+          - types-redis
+        args: [--ignore-missing-imports]
+        pass_filenames: false
+        entry: mypy manifold_db/
+
+  # ---------------------------------------------------------------------------
+  # Generic file fixes
+  # ---------------------------------------------------------------------------
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.6.0
+    hooks:
+      - id: trailing-whitespace
+        name: Trim trailing whitespace
+        exclude_types: [svg]
+
+      - id: end-of-file-fixer
+        name: Fix end-of-file
+
+      - id: check-yaml
+        name: Validate YAML files
+        args: [--unsafe]     # allow custom YAML tags
+
+      - id: check-json
+        name: Validate JSON files
+
+      - id: check-added-large-files
+        name: Prevent large file commits
+        args: [--maxkb=1024]
+
+      - id: check-merge-conflict
+        name: Detect merge conflict markers
+
+      - id: check-docstring-first
+        name: Check docstring is first in module
+
+      - id: detect-private-key
+        name: Detect private keys in code
+
+      - id: check-case-conflict
+        name: Check for case-insensitive filename conflicts
+
+  # ---------------------------------------------------------------------------
+  # isort — import sorting (compatible with black)
+  # ---------------------------------------------------------------------------
+  - repo: https://github.com/pycqa/isort
+    rev: "5.13.2"
+    hooks:
+      - id: isort
+        name: isort (import sorting)
+
+  # ---------------------------------------------------------------------------
+  # Dockerfile lint
+  # ---------------------------------------------------------------------------
+  - repo: https://github.com/hadolint/hadolint
+    rev: v2.12.0
+    hooks:
+      - id: hadolint-docker
+        name: hadolint (Dockerfile lint)
+
+# ---------------------------------------------------------------------------
+# Global configuration
+# ---------------------------------------------------------------------------
+ci:
+  autofix_commit_msg: "style: auto-format with pre-commit hooks"
+  autoupdate_commit_msg: "chore: update pre-commit hooks"
+  skip: [mypy]   # mypy is slow; skip in CI by default

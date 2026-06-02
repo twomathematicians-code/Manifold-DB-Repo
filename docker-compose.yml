@@ -1,0 +1,130 @@
+# =============================================================================
+# Manifold DB — Docker Compose (production)
+# =============================================================================
+# Usage:
+#   docker-compose up -d          # start all services
+#   docker-compose logs -f        # tail logs
+#   docker-compose down -v        # stop + remove volumes
+# =============================================================================
+
+version: "3.9"
+
+services:
+  # ---------------------------------------------------------------------------
+  # Main API server
+  # ---------------------------------------------------------------------------
+  manifold-db:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: manifold-db-server
+    restart: unless-stopped
+    ports:
+      - "${MANIFOLD_DB_PORT:-8000}:8000"
+    environment:
+      - MANIFOLD_DB_HOST=0.0.0.0
+      - MANIFOLD_DB_PORT=8000
+      - MANIFOLD_DB_WORKERS=${MANIFOLD_DB_WORKERS:-4}
+      - MANIFOLD_DB_LOG_LEVEL=${MANIFOLD_DB_LOG_LEVEL:-info}
+      - MANIFOLD_DB_REDIS_URL=redis://redis:6379/0
+      - MANIFOLD_DB_DATABASE_URL=${MANIFOLD_DB_DATABASE_URL:-sqlite:///data/manifold.db}
+      - MANIFOLD_DB_SECRET_KEY=${MANIFOLD_DB_SECRET_KEY:-change-me-in-production}
+    volumes:
+      - manifold-data:/data
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    networks:
+      - manifold-net
+
+  # ---------------------------------------------------------------------------
+  # Background worker (processes async tasks, index builds, etc.)
+  # ---------------------------------------------------------------------------
+  manifold-db-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: manifold-db-worker
+    restart: unless-stopped
+    entrypoint: ["python", "-m", "manifold_db.cli.worker"]
+    environment:
+      - MANIFOLD_DB_REDIS_URL=redis://redis:6379/0
+      - MANIFOLD_DB_DATABASE_URL=${MANIFOLD_DB_DATABASE_URL:-sqlite:///data/manifold.db}
+      - MANIFOLD_DB_SECRET_KEY=${MANIFOLD_DB_SECRET_KEY:-change-me-in-production}
+      - MANIFOLD_DB_LOG_LEVEL=${MANIFOLD_DB_LOG_LEVEL:-info}
+    volumes:
+      - manifold-data:/data
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - manifold-net
+
+  # ---------------------------------------------------------------------------
+  # Redis — caching, rate-limiting, task queue broker
+  # ---------------------------------------------------------------------------
+  redis:
+    image: redis:7-alpine
+    container_name: manifold-db-redis
+    restart: unless-stopped
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    networks:
+      - manifold-net
+
+  # ---------------------------------------------------------------------------
+  # PostgreSQL — optional production-grade persistence
+  # ---------------------------------------------------------------------------
+  postgres:
+    image: postgres:16-alpine
+    container_name: manifold-db-postgres
+    restart: unless-stopped
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-manifold}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-manifold_secret}
+      POSTGRES_DB: ${POSTGRES_DB:-manifold_db}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-manifold} -d ${POSTGRES_DB:-manifold_db}"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    networks:
+      - manifold-net
+    profiles:
+      - production        # only started with: docker-compose --profile production up
+
+# ---------------------------------------------------------------------------
+# Volumes
+# ---------------------------------------------------------------------------
+volumes:
+  manifold-data:
+    driver: local
+  redis-data:
+    driver: local
+  postgres-data:
+    driver: local
+
+# ---------------------------------------------------------------------------
+# Networks
+# ---------------------------------------------------------------------------
+networks:
+  manifold-net:
+    driver: bridge

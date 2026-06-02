@@ -1,0 +1,114 @@
+site_name: Manifold Database
+site_description: A geometric inference engine for data on Riemannian manifolds.
+site_author: Manifold DB Contributors
+repo_url: https://github.com/your-org/manifold-db
+
+theme:
+  name: material
+  palette:
+    # Light/dark mode toggle
+    - scheme: default
+      primary: teal
+      accent: amber
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - scheme: slate
+      primary: teal
+      accent: amber
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - navigation.instant
+    - navigation.tracking
+    - navigation.tabs
+    - navigation.sections
+    - navigation.indexes
+    - navigation.top
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+    - content.code.annotate
+  font:
+    text: Roboto
+    code: Roboto Mono
+
+# Navigation structure
+nav:
+  - Home: index.md
+  - Tutorials:
+    - Getting Started: tutorials/getting-started.md
+    - Advanced Queries: tutorials/advanced-queries.md
+  - Architecture:
+    - Overview: architecture/overview.md
+    - Atlas Layer: architecture/atlas.md
+    - Query Engine: architecture/query-engine.md
+  - API Reference:
+    - Full API: api/api-reference.md
+
+# Extensions
+markdown_extensions:
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate: false
+  - pymdownx.details
+  - admonition
+  - toc:
+      permalink: true
+      toc_depth: 3
+  - tables
+  - attr_list
+  - md_in_html
+
+# Plugins
+plugins:
+  - search:
+      lang: en
+      separator: '[\s\-\.]+'
+  - mkdocstrings:
+      default_handler: python
+      handlers:
+        python:
+          paths: [manifold_db]
+          options:
+            heading_level: 2
+            show_root_heading: true
+            show_root_full_path: false
+            show_if_no_docstring: true
+            show_source: false
+            show_bases: true
+            members_order: source
+            docstring_style: google
+            filters:
+              - "!^_"
+            merge_init_into_class: true
+
+# Extra CSS for custom styling
+extra_css:
+  - styles/extra.css
+
+# Custom labels
+extra:
+  version:
+    provider: mike
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/your-org/manifold-db
+
+# Exclude patterns
+exclude_patterns:
+  - __pycache__
+  - "*.pyc"
+  - ".git"
+  - "node_modules"
+  - examples/output
+
+# Development setup
+dev_addr: localhost:8000

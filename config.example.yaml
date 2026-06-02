@@ -1,0 +1,138 @@
+# Configuration Example
+
+This file documents all available configuration options for Manifold Database.
+Copy this file to `manifold_config.yaml` and adjust values as needed.
+
+# ─────────────────────────────────────────────────────────────────
+# Atlas — controls how the manifold is partitioned into charts
+# ─────────────────────────────────────────────────────────────────
+atlas:
+  # Maximum number of charts to create during atlas building.
+  # Higher values improve coverage but increase memory usage and query latency.
+  max_charts: 20
+
+  # Minimum number of points per chart. Charts smaller than this are merged
+  # with their nearest neighbour chart.
+  min_chart_size: 100
+
+  # Fractional overlap between adjacent charts (0.0 to 1.0).
+  # Overlap ensures smooth transitions and accurate cross-chart queries.
+  overlap_ratio: 0.1
+
+  # Method for estimating intrinsic dimensionality of each chart.
+  # Options: "pca" (eigenvalue threshold), "correlation" (pairwise correlation),
+  #          "nearest_neighbor" (intrinsic dimension estimation).
+  dim_estimation: pca
+
+# ─────────────────────────────────────────────────────────────────
+# Index — tangent space index configuration
+# ─────────────────────────────────────────────────────────────────
+index:
+  # Number of anchor points (tangent spaces) for the tangent bundle.
+  # More anchors improve accuracy but increase build time and memory.
+  n_anchors: 50
+
+  # Leaf size for per-anchor BallTree indices.
+  # Larger values reduce memory but may slow down local queries.
+  leaf_size: 40
+
+  # Default distance metric for index operations.
+  # Options: "geodesic", "euclidean", "riemannian".
+  metric_type: geodesic
+
+# ─────────────────────────────────────────────────────────────────
+# Geodesic — ODE solver and geodesic computation settings
+# ─────────────────────────────────────────────────────────────────
+geodesic:
+  # ODE solver for geodesic integration.
+  # Options: "rk45" (adaptive Runge-Kutta 4/5), "euler" (fixed-step Euler),
+  #          "lbfgs" (energy minimisation for potential surfaces).
+  solver: rk45
+
+  # Initial time step for the ODE solver. Smaller values improve accuracy
+  # at the cost of more steps.
+  dt: 0.01
+
+  # Maximum number of integration steps before aborting.
+  # Increase for longer geodesic paths.
+  max_steps: 1000
+
+  # Convergence tolerance for the ODE solver.
+  # Smaller values yield more precise geodesic paths.
+  tolerance: 1e-6
+
+  # Enable GPU acceleration for geodesic computation (requires CUDA).
+  # When false, all computation runs on CPU via NumPy/SciPy.
+  gpu_accelerated: false
+
+# ─────────────────────────────────────────────────────────────────
+# Metric — Riemannian metric tensor configuration
+# ─────────────────────────────────────────────────────────────────
+metric:
+  # Default metric type when none is specified.
+  # Options: "euclidean" (flat), "diagonal" (weighted axes),
+  #          "learned" (MLP-parameterised), "fisher_rao", "wasserstein".
+  default_type: euclidean
+
+  # Hidden layer dimension for the LearnedMetric MLP.
+  # Only used when metric type is "learned". Requires PyTorch.
+  learned_hidden_dim: 128
+
+# ─────────────────────────────────────────────────────────────────
+# Storage — data persistence backend
+# ─────────────────────────────────────────────────────────────────
+storage:
+  # Storage backend selection.
+  # Options: "memory" (fast, ephemeral), "file" (JSON serialisation),
+  #          "sqlite" (persistent, production-ready).
+  backend: memory
+
+  # File system path for file/sqlite backends.
+  path: ./manifold_data
+
+  # Maximum cache size in megabytes for in-memory caching.
+  cache_size_mb: 512
+
+# ─────────────────────────────────────────────────────────────────
+# Connection — parallel transport settings
+# ─────────────────────────────────────────────────────────────────
+connection:
+  # Parallel transport algorithm.
+  # Options: "schild_ladder" (geometric, accurate),
+  #          "euler" (fast, approximate).
+  transport_method: schild_ladder
+
+  # Cache parallel transport results for repeated queries.
+  # Trades memory for faster cross-chart and cross-modal retrieval.
+  cache_transports: true
+
+# ─────────────────────────────────────────────────────────────────
+# Query — default query parameters
+# ─────────────────────────────────────────────────────────────────
+query:
+  # Default number of results for k-NN queries.
+  default_k: 10
+
+  # Maximum number of results returned by any single query.
+  # Prevents excessive memory usage for geodesic ball queries.
+  max_results: 1000
+
+  # Query timeout in milliseconds. Queries exceeding this are aborted.
+  timeout_ms: 30000
+
+# ─────────────────────────────────────────────────────────────────
+# Server — REST API server configuration
+# ─────────────────────────────────────────────────────────────────
+server:
+  # Host address to bind the server. Use "0.0.0.0" for all interfaces.
+  host: 0.0.0.0
+
+  # Port number for the REST API server.
+  port: 8000
+
+  # Number of uvicorn worker processes. Set to 0 for single-process mode.
+  workers: 4
+
+  # Enable debug mode (auto-reload, verbose errors).
+  # Do not use in production.
+  debug: false

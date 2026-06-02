@@ -1,0 +1,140 @@
+# =============================================================================
+# Manifold DB — Development Docker Compose
+# =============================================================================
+# Usage:
+#   docker-compose -f docker-compose.dev.yml up -d
+#   docker-compose -f docker-compose.dev.yml down
+# =============================================================================
+
+version: "3.9"
+
+services:
+  # ---------------------------------------------------------------------------
+  # Main API server — hot-reload, debug port
+  # ---------------------------------------------------------------------------
+  manifold-db:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: manifold-db-dev-server
+    restart: unless-stopped
+    ports:
+      - "${MANIFOLD_DB_PORT:-8000}:8000"
+      - "5678:5678"          # debugger (debugpy)
+    volumes:
+      - ./manifold_db:/app/manifold_db:ro
+      - ./pyproject.toml:/app/pyproject.toml:ro
+      - manifold-dev-data:/app/data
+    environment:
+      - MANIFOLD_DB_HOST=0.0.0.0
+      - MANIFOLD_DB_PORT=8000
+      - MANIFOLD_DB_WORKERS=1
+      - MANIFOLD_DB_LOG_LEVEL=debug
+      - MANIFOLD_DB_REDIS_URL=redis://redis:6379/0
+      - MANIFOLD_DB_DATABASE_URL=sqlite:///data/manifold_dev.db
+      - MANIFOLD_DB_SECRET_KEY=dev-secret-key-not-for-production
+      - PYTHONPATH=/app
+      - PYTHONUNBUFFERED=1
+    command: >
+      uvicorn manifold_db.api.main:app
+        --host 0.0.0.0
+        --port 8000
+        --reload
+        --reload-dir /app/manifold_db
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - manifold-dev-net
+
+  # ---------------------------------------------------------------------------
+  # Redis — caching / task queue
+  # ---------------------------------------------------------------------------
+  redis:
+    image: redis:7-alpine
+    container_name: manifold-db-dev-redis
+    restart: unless-stopped
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    command: redis-server --appendonly yes --maxmemory 128mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis-dev-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    networks:
+      - manifold-dev-net
+
+  # ---------------------------------------------------------------------------
+  # Jupyter Notebook — for interactive exploration
+  # ---------------------------------------------------------------------------
+  jupyter:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: manifold-db-dev-jupyter
+    restart: unless-stopped
+    ports:
+      - "8888:8888"
+    volumes:
+      - ./manifold_db:/app/manifold_db:ro
+      - ./notebooks:/app/notebooks
+      - manifold-dev-data:/app/data
+    environment:
+      - PYTHONPATH=/app
+      - PYTHONUNBUFFERED=1
+    entrypoint: >
+      jupyter lab
+        --ip=0.0.0.0
+        --port=8888
+        --no-browser
+        --notebook-dir=/app/notebooks
+        --allow-root
+        --NotebookApp.token=dev
+    networks:
+      - manifold-dev-net
+
+  # ---------------------------------------------------------------------------
+  # PostgreSQL — optional production-style database (use with docker-compose.yml)
+  # ---------------------------------------------------------------------------
+  postgres:
+    image: postgres:16-alpine
+    container_name: manifold-db-dev-postgres
+    restart: unless-stopped
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    environment:
+      POSTGRES_USER: manifold
+      POSTGRES_PASSWORD: manifold_dev
+      POSTGRES_DB: manifold_dev
+    volumes:
+      - postgres-dev-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U manifold -d manifold_dev"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    networks:
+      - manifold-dev-net
+    profiles:
+      - postgres
+
+# ---------------------------------------------------------------------------
+# Volumes
+# ---------------------------------------------------------------------------
+volumes:
+  manifold-dev-data:
+    driver: local
+  redis-dev-data:
+    driver: local
+  postgres-dev-data:
+    driver: local
+
+# ---------------------------------------------------------------------------
+# Networks
+# ---------------------------------------------------------------------------
+networks:
+  manifold-dev-net:
+    driver: bridge
