@@ -1,127 +1,153 @@
 """
-Shared fixtures for all manifold_db tests.
-Provides synthetic datasets, chart objects, and commonly used components.
+conftest.py - Shared pytest fixtures and configuration for ManifoldDB tests
+=============================================================================
+
+This module provides:
+- A session-level skip if the C++ extension ``_manifolddb_core`` is not available.
+- Common fixtures (random data generators, temporary database paths, etc.).
+
+All tests in the ``tests/`` package share these fixtures automatically.
 """
+
+from __future__ import annotations
 
 import os
 import tempfile
+import shutil
+from typing import Sequence
 
 import numpy as np
 import pytest
 
 
-# ---------- Reproducibility ----------
-@pytest.fixture(autouse=True)
-def _set_random_seed():
-    np.random.seed(42)
+# ---------------------------------------------------------------------------
+# Check that the C++ extension is importable
+# ---------------------------------------------------------------------------
+
+def _core_available() -> bool:
+    """Return ``True`` if ``_manifolddb_core`` can be imported."""
+    try:
+        import manifolddb._manifolddb_core  # noqa: F401
+        return True
+    except Exception:
+        pass
+    try:
+        import _manifolddb_core  # noqa: F401
+        return True
+    except Exception:
+        pass
+    return False
 
 
-# ---------- Synthetic datasets ----------
+CORE_AVAILABLE = _core_available()
+CORE_SKIP_REASON = (
+    "C++ extension _manifolddb_core is not available. "
+    "Build ManifoldDB from source first: pip install -e ."
+)
 
 
-@pytest.fixture
-def random_data():
-    """1000 points in 50-D ambient space."""
-    return np.random.randn(1000, 50).astype(np.float64)
-
-
-@pytest.fixture
-def swiss_roll_data():
-    """Classic Swiss-roll: 1000 points in 3-D."""
-    n = 1000
-    t = np.linspace(1.5 * np.pi, 4.5 * np.pi, n)
-    x = t * np.sin(t) + np.random.randn(n) * 0.1
-    y = t * np.cos(t) + np.random.randn(n) * 0.1
-    z = np.random.randn(n) * 0.5
-    return np.column_stack([x, y, z]).astype(np.float64)
-
-
-@pytest.fixture
-def low_dim_data():
-    """500 points in 10-D that roughly live on a 3-D manifold (linear + noise)."""
-    n = 500
-    basis = np.random.randn(10, 3)
-    latent = np.random.randn(n, 3)
-    noise = np.random.randn(n, 10) * 0.05
-    return (latent @ basis.T + noise).astype(np.float64)
-
-
-@pytest.fixture
-def multi_modal_data():
-    """Two modalities with an overlap region."""
-    # Text-like embeddings: 768-D (simulated)
-    text_data = np.random.randn(300, 50).astype(np.float64)
-    # Image-like embeddings: 512-D (simulated) - mapped to same dim for simplicity
-    image_data = np.random.randn(300, 50).astype(np.float64) + 2.0
-    # Overlap region: 50 points that blend both
-    overlap_data = np.random.randn(50, 50).astype(np.float64) + 1.0
-    modality_labels = ["text"] * 300 + ["image"] * 300 + ["overlap"] * 50
-    combined = np.vstack([text_data, image_data, overlap_data])
-    return combined, modality_labels
-
-
-# ---------- Chart fixture ----------
-
-
-@pytest.fixture
-def simple_chart():
-    """A basic Chart wrapping an identity projection in 3-D."""
-    from manifold_db.atlas import Chart
-
-    chart = Chart(
-        name="test_chart",
-        dim=3,
-        ambient_dim=3,
+def pytest_configure(config):
+    """Register custom markers."""
+    config.addinivalue_line(
+        "markers", "requires_core: skip test if _manifolddb_core is unavailable"
     )
-    return chart
+
+
+# ---------------------------------------------------------------------------
+# Session-level auto-skip
+# ---------------------------------------------------------------------------
+
+def pytest_runtest_setup(item):
+    """Skip every test if the core extension is missing."""
+    # Allow tests that explicitly opt out with @pytest.mark.skipif.
+    if "requires_core" in item.keywords:
+        if not CORE_AVAILABLE:
+            pytest.skip(CORE_SKIP_REASON)
+    # For all other tests, also skip if core is unavailable
+    elif not CORE_AVAILABLE:
+        pytest.skip(CORE_SKIP_REASON)
+
+
+# ---------------------------------------------------------------------------
+# Fixtures
+# ---------------------------------------------------------------------------
+
+@pytest.fixture
+def core():
+    """Return the ``_manifolddb_core`` module."""
+    try:
+        import manifolddb._manifolddb_core as mod
+        return mod
+    except ImportError:
+        import _manifolddb_core as mod
+        return mod
 
 
 @pytest.fixture
-def chart_with_data(random_data):
-    """Chart with embedded data from random_data (first 100 points)."""
-    from manifold_db.atlas import Chart
+def temp_db_path(tmp_path):
+    """Return a temporary directory path for ManifoldDB storage.
 
-    data = random_data[:100]
-    chart = Chart(name="data_chart", dim=50, ambient_dim=50)
-    # Manually set embedded data snapshot so bounds/anchors work
-    chart._embedded_data = data.copy()
-    chart._data_count = len(data)
-    return chart
-
-
-# ---------- Tangent-space fixture ----------
+    The directory is automatically cleaned up by ``tmp_path`` (pytest builtin).
+    """
+    p = tmp_path / "manifolddb_test_data"
+    p.mkdir(exist_ok=True)
+    return str(p)
 
 
 @pytest.fixture
-def tangent_space():
-    """TangentSpace built from a small cluster of points."""
-    from manifold_db.tangent_index import TangentSpace
-
-    center = np.zeros(10)
-    neighbors = np.random.randn(50, 10) * 0.5
-    return TangentSpace(base_point=center, data=neighbors)
-
-
-# ---------- Storage fixtures ----------
+def rng():
+    """Return a seeded NumPy random generator for reproducible tests."""
+    return np.random.default_rng(seed=42)
 
 
 @pytest.fixture
-def temp_storage_dir():
-    with tempfile.TemporaryDirectory() as tmpdir:
-        yield tmpdir
+def random_points_3d(rng) -> np.ndarray:
+    """Generate 100 random points in R^3 (shape ``(100, 3)``)."""
+    return rng.standard_normal((100, 3))
 
 
 @pytest.fixture
-def sample_data_points():
-    """A small list of DataPoint-like dicts."""
-    pts = []
-    for i in range(20):
-        pts.append(
-            {
-                "id": f"pt_{i}",
-                "vector": np.random.randn(10).astype(np.float64),
-                "metadata": {"source": "test"},
-                "modality": "default",
-            }
-        )
-    return pts
+def random_points_10d(rng) -> np.ndarray:
+    """Generate 200 random points in R^10 (shape ``(200, 10)``)."""
+    return rng.standard_normal((200, 10))
+
+
+@pytest.fixture
+def identity_basis_3d() -> np.ndarray:
+    """3x3 identity matrix, usable as an orthonormal basis for a 3-D LinearChart."""
+    return np.eye(3, dtype=np.float64)
+
+
+@pytest.fixture
+def identity_basis_3d_in_5d() -> np.ndarray:
+    """5x3 matrix embedding R^3 into R^5 (first 3 columns of I_5)."""
+    return np.eye(5, 3, dtype=np.float64)
+
+
+@pytest.fixture
+def simple_chart(core, identity_basis_3d):
+    """Create a simple 3-D LinearChart with identity basis and zero origin."""
+    origin = np.zeros(3, dtype=np.float64)
+    return core.LinearChart(id=0, basis=identity_basis_3d, origin=origin)
+
+
+@pytest.fixture
+def metric_store(core, temp_db_path):
+    """Create a MetricStore backed by the temp database path."""
+    return core.MetricStore(temp_db_path + "/metrics")
+
+
+@pytest.fixture
+def solver(core, metric_store):
+    """Create a GeodesicSolver with default configuration."""
+    config = core.SolverConfig()
+    config.bvp_tolerance = 1e-4
+    config.max_bvp_iterations = 30
+    config.tolerance = 1e-6
+    return core.GeodesicSolver(metric_store=metric_store, config=config)
+
+
+@pytest.fixture
+def atlas(core):
+    """Create an empty Atlas."""
+    return core.Atlas()

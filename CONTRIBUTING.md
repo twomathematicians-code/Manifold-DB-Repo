@@ -1,114 +1,161 @@
-# Contributing to Manifold Database
+# Contributing to ManifoldDB
 
-Thank you for your interest in contributing to Manifold Database! This guide will help you get started with development and ensure your contributions align with our standards.
+Thank you for your interest in contributing to ManifoldDB! This document provides guidelines for setting up the development environment, coding standards, and the pull request process.
 
 ## Table of Contents
 
-- [Code of Conduct](#code-of-conduct)
-- [Development Setup](#development-setup)
-- [Code Style](#code-style)
-- [Testing](#testing)
-- [Commit Messages](#commit-messages)
-- [Pull Requests](#pull-requests)
-- [Issue Guidelines](#issue-guidelines)
+1. [Development Environment Setup](#development-environment-setup)
+2. [Building from Source](#building-from-source)
+3. [Code Style Guidelines](#code-style-guidelines)
+4. [Testing](#testing)
+5. [Pull Request Process](#pull-request-process)
+6. [Issue Reporting](#issue-reporting)
+7. [Commit Messages](#commit-messages)
 
-## Code of Conduct
+---
 
-This project follows the [Contributor Covenant Code of Conduct](https://www.contributor-covenant.org/version/2/1/code_of_conduct/). By participating, you agree to abide by its terms. Be respectful, inclusive, and constructive in all interactions.
-
-## Development Setup
+## Development Environment Setup
 
 ### Prerequisites
 
-- **Python 3.10+** (tested on 3.10, 3.11, 3.12)
-- **Git** with SSH or HTTPS access
-- **pip** or **conda** for package management
+| Tool | Minimum Version | Purpose |
+|------|----------------|---------|
+| Python | 3.9+ | Runtime |
+| C++ Compiler | C++20 support | Building the extension |
+| CMake | 3.18+ | Build system (alternative) |
+| Eigen | 3.3+ | Linear algebra |
+| pybind11 | 2.11+ | Python bindings |
+| PyTorch | 1.12+ | Build tooling & optional CUDA |
+| NumPy | 1.21+ | Array interop |
+| pytest | 7.0+ | Testing |
 
-### Clone and Install
+### Installation Steps
 
 ```bash
-# Clone the repository
-git clone https://github.com/manifold-db/manifold-db.git
-cd manifold-db
+# 1. Clone the repository
+git clone https://github.com/manifolddb/manifolddb.git
+cd manifolddb
 
-# Create a virtual environment
+# 2. Create a virtual environment
 python -m venv .venv
 source .venv/bin/activate  # Linux/macOS
-# .venv\Scripts\activate   # Windows
+# .venv\Scripts\activate     # Windows
 
-# Install in editable mode with dev dependencies
+# 3. Install development dependencies
 pip install -e ".[dev]"
 
-# Verify installation
-manifold-db version
-python -c "import manifold_db; print(manifold_db.__version__)"
+# 4. Verify the build
+python -c "import manifolddb; print(manifolddb.__version__)"
 ```
 
-### Quick Start
+### Platform-Specific Notes
+
+**Ubuntu/Debian:**
+```bash
+sudo apt install libeigen3-dev pybind11-dev
+```
+
+**macOS (Homebrew):**
+```bash
+brew install eigen pybind11
+```
+
+**Windows (vcpkg):**
+```bash
+vcpkg install eigen3 pybind11
+```
+
+---
+
+## Building from Source
+
+### pip (Recommended)
 
 ```bash
-# Install pre-commit hooks
-pre-commit install
-
-# Run linting and formatting
-make lint
-make format
-
-# Run tests
-make test
-
-# Full check (lint + test)
-make check
+pip install -e .
 ```
 
-## Code Style
+This uses `torch.utils.cpp_extension` to compile the C++ extension automatically.
 
-Manifold Database enforces consistent code style using the following tools:
-
-| Tool | Purpose | Config |
-|------|---------|--------|
-| **Black** | Code formatting | `line-length = 88` |
-| **Ruff** | Linting and import sorting | `select = ["E", "F", "W", "I"]` |
-| **isort** | Import ordering | `profile = "black"` |
-| **mypy** | Static type checking | `strict` mode |
-
-### Formatting
+### CMake
 
 ```bash
-# Auto-format all files
-black manifold_db/ tests/
-
-# Sort imports
-isort manifold_db/ tests/
-
-# Or use the Makefile target
-make format
+mkdir build && cd build
+cmake .. -DCMAKE_BUILD_TYPE=Release
+make -j$(nproc)
 ```
 
-### Linting
+### With CUDA
 
 ```bash
-# Run linter
-ruff check manifold_db/ tests/
-
-# Auto-fix lint issues
-ruff check --fix manifold_db/ tests/
-
-# Type checking
-mypy manifold_db/
-
-# Full lint check
-make lint
+# Ensure CUDA toolkit is installed and in PATH
+pip install -e .  # Auto-detects CUDA_HOME
 ```
 
-### Pre-commit Hooks
+---
 
-We use pre-commit to run checks automatically on every commit:
+## Code Style Guidelines
+
+### C++
+
+- **Standard:** C++20
+- **Formatting:** Follow the existing style in the codebase (4-space indentation, braces on same line)
+- **Naming:**
+  - Classes: `PascalCase` (e.g., `MetricTensor`, `GeodesicSolver`)
+  - Functions/methods: `snake_case` (e.g., `compute_local_metric`, `solve_ivp`)
+  - Member variables: `snake_case_` with trailing underscore (e.g., `intrinsic_dim_`, `basis_`)
+  - Constants: `kCamelCase` or `UPPER_SNAKE_CASE`
+- **Includes:** Use `#pragma once` for headers
+- **Documentation:** Use `///` for doc comments on public APIs
+- **Exceptions:** Throw `DBException` subclasses for library errors
+- **Memory:** Use `std::shared_ptr` and `std::unique_ptr`; avoid raw `new`/`delete`
+
+### Python
+
+- **Formatting:** [Black](https://github.com/psf/black) with default settings (88 char line length)
+- **Linting:** [Ruff](https://github.com/astral-sh/ruff)
+- **Type hints:** Use Python 3.9+ syntax (e.g., `list[int]` instead of `List[int]`)
+- **Docstrings:** Google-style docstrings with NumPy conventions for parameters/returns
+- **Imports:** Absolute imports; group as: stdlib → third-party → local
+
+```python
+"""Module docstring."""
+from __future__ import annotations
+
+import math
+from typing import Optional
+
+import numpy as np
+
+
+def compute_distance(a: np.ndarray, b: np.ndarray) -> float:
+    """Compute the Euclidean distance between two arrays.
+
+    Args:
+        a: First array, shape (N,).
+        b: Second array, shape (N,).
+
+    Returns:
+        Euclidean distance as a float.
+
+    Raises:
+        ValueError: If shapes do not match.
+    """
+    ...
+```
+
+### Running Formatters
 
 ```bash
-pre-commit install          # Install hooks
-pre-commit run --all-files  # Run all hooks manually
+# Format C++ (if clang-format is configured)
+find cpp -name '*.hpp' -o -name '*.cpp' | xargs clang-format -i
+
+# Format Python
+black python/ tests/
+ruff check python/ tests/ --fix
 ```
+
+---
 
 ## Testing
 
@@ -116,57 +163,110 @@ pre-commit run --all-files  # Run all hooks manually
 
 ```bash
 # Run all tests
-make test
-
-# Run with pytest directly
 pytest tests/ -v
 
 # Run a specific test file
-pytest tests/unit/test_tangent_index.py -v
+pytest tests/test_chart.py -v
 
-# Run a specific test function
-pytest tests/unit/test_tangent_index.py::test_project_lift_roundtrip -v
+# Run a specific test
+pytest tests/test_chart.py::TestLinearChart::test_linear_chart_embed_project -v
 
-# Run by marker
-pytest -m "unit"           # Unit tests only
-pytest -m "integration"   # Integration tests only
-pytest -m "benchmark"      # Benchmark tests only
+# Run with coverage
+pytest tests/ --cov=manifolddb --cov-report=html
 ```
 
-### Test Coverage
+### Test Structure
+
+Tests are located in the `tests/` directory and mirror the source structure:
+
+| File | Coverage |
+|------|----------|
+| `test_chart.py` | `LinearChart`, `ParametricChart`, Christoffel symbols, exp/log maps |
+| `test_metric_tensor.py` | `MetricTensor`, `MetricStore` |
+| `test_atlas.py` | `Atlas`, `TransitionMap`, path finding, chart discovery |
+| `test_geodesic_solver.py` | `GeodesicSolver` (IVP, BVP, parallel transport) |
+| `test_manifold_db.py` | `ManifoldDB` integration tests |
+
+### Skip Behavior
+
+All tests are automatically skipped if the C++ extension `_manifolddb_core` is not built. To build it:
 
 ```bash
-# Run tests with coverage
-make test-cov
-
-# Generate HTML coverage report
-pytest --cov=manifold_db --cov-report=html tests/
-open htmlcov/index.html
+pip install -e .
 ```
 
-We maintain a minimum coverage of **85%** for all new code. Check the coverage badge on the README.
+### Writing New Tests
 
-### Writing Tests
-
-- Place unit tests in `tests/unit/` mirroring the source structure
-- Place integration tests in `tests/integration/`
-- Use `pytest` fixtures defined in `tests/conftest.py`
-- Follow the Arrange-Act-Assert pattern
-- Use descriptive test names: `test_<what>_<when>_<expected>`
+1. Place tests in the appropriate file under `tests/`
+2. Use `@pytest.mark.requires_core` for tests needing the C++ extension
+3. Use fixtures from `conftest.py` where possible
+4. Include docstrings explaining what is being tested
 
 ```python
-def test_tangent_space_project_lift_roundtrip():
-    """Project and lift should recover the original point."""
-    ts = TangentSpace(base_point=np.zeros(3), data=np.random.randn(50, 3))
-    original = np.random.randn(3)
-    tangent_coords = ts.project(original)
-    recovered = ts.lift(tangent_coords)
-    np.testing.assert_allclose(recovered, original, atol=1e-10)
+def test_my_new_feature(self, core, rng):
+    """Verify that the new feature works correctly.
+
+    This test creates a chart and verifies that the feature
+    produces the expected result.
+    """
+    chart = core.LinearChart(id=0, basis=np.eye(3), origin=np.zeros(3))
+    result = chart.some_new_method()
+    assert result is not None
 ```
+
+---
+
+## Pull Request Process
+
+1. **Fork** the repository and create a feature branch from `main`
+2. **Make changes** following the code style guidelines
+3. **Write tests** for new functionality
+4. **Run the test suite** and ensure all tests pass:
+   ```bash
+   pytest tests/ -v
+   ```
+5. **Update documentation** if API changes were made
+6. **Open a Pull Request** with:
+   - Clear title and description
+   - Reference to any related issues
+   - List of changes made
+7. **Address review feedback** promptly
+
+### PR Checklist
+
+- [ ] Code compiles without warnings
+- [ ] All existing tests pass
+- [ ] New tests added for new functionality
+- [ ] Documentation updated (if applicable)
+- [ ] Commit messages follow conventions
+
+---
+
+## Issue Reporting
+
+### Bug Reports
+
+When filing a bug report, please include:
+
+1. **Environment:** OS, Python version, compiler, CUDA version (if applicable)
+2. **Minimal reproducer:** The smallest code snippet that triggers the bug
+3. **Expected behavior:** What you expected to happen
+4. **Actual behavior:** What actually happened (with error messages)
+5. **Steps to reproduce:** How to trigger the bug
+
+### Feature Requests
+
+For feature requests, please describe:
+
+1. **Motivation:** Why this feature would be useful
+2. **Proposed API:** How you envision the feature being used
+3. **Alternatives considered:** Any other approaches you've thought of
+
+---
 
 ## Commit Messages
 
-We follow [Conventional Commits](https://www.conventionalcommits.org/) for all commit messages:
+Follow the [Conventional Commits](https://www.conventionalcommits.org/) format:
 
 ```
 <type>(<scope>): <description>
@@ -176,76 +276,32 @@ We follow [Conventional Commits](https://www.conventionalcommits.org/) for all c
 [optional footer]
 ```
 
-### Types
+**Types:**
+- `feat`: New feature
+- `fix`: Bug fix
+- `docs`: Documentation changes
+- `test`: Test additions/changes
+- `refactor`: Code refactoring
+- `perf`: Performance improvements
+- `build`: Build system changes
+- `ci`: CI/CD changes
+- `chore`: Maintenance tasks
 
-| Type | Description |
-|------|-------------|
-| `feat` | New feature |
-| `fix` | Bug fix |
-| `docs` | Documentation changes |
-| `style` | Code style (formatting, semicolons) |
-| `refactor` | Code refactoring (no feature/fix) |
-| `perf` | Performance improvement |
-| `test` | Adding or updating tests |
-| `chore` | Maintenance tasks |
-| `ci` | CI/CD changes |
-
-### Examples
+**Examples:**
 
 ```
-feat(atlas): add automatic chart overlap detection
-fix(geodesic): correct RK45 step size for high-curvature regions
-docs(readme): add cross-modal retrieval example
-test(tangent): add parallel transport batch tests
-refactor(metric): simplify learned metric forward pass
-perf(index): batch insert with vectorised anchor lookup
+feat(geodesic): add symplectic Euler integrator
+fix(atlas): handle empty data in discover_charts_linear
+test(metric): add serialize/deserialize round-trip test
+docs(readme): add multi-modal usage example
 ```
-
-## Pull Requests
-
-### Before Submitting
-
-1. **Run the full check**: `make check` (lint + test)
-2. **Update tests** for any new or changed functionality
-3. **Update documentation** for any public API changes
-4. **Rebase** on the latest `main` branch
-5. **Squash** fixup commits into logical units
-
-### PR Checklist
-
-- [ ] All tests pass (`make check`)
-- [ ] New code has test coverage
-- [ ] Documentation updated (if applicable)
-- [ ] Commit messages follow Conventional Commits
-- [ ] No new linting or type errors
-- [ ] PR description clearly explains the change
-
-### PR Template
-
-When opening a PR, please include:
-
-- **Summary**: What does this PR do?
-- **Motivation**: Why is this change needed?
-- **Changes**: List of files modified
-- **Testing**: How was this tested?
-- **Breaking changes**: Any public API changes?
-
-## Issue Guidelines
-
-When opening an issue, please use the appropriate template:
-
-- 🐛 **Bug Report**: Unexpected behaviour or crashes → [`bug_report.md`](.github/ISSUE_TEMPLATE/bug_report.md)
-- ✨ **Feature Request**: New functionality or enhancements → [`feature_request.md`](.github/ISSUE_TEMPLATE/feature_request.md)
-- ❓ **Question**: Usage questions or clarification → [`question.md`](.github/ISSUE_TEMPLATE/question.md)
-
-### Good Issue Reports Include
-
-- **Clear title** summarising the issue
-- **Minimal reproducible example** when applicable
-- **Expected vs actual behaviour**
-- **Environment details** (Python version, OS, installation method)
-- **Logs or stack traces** (formatted in code blocks)
 
 ---
 
-Thank you for contributing to Manifold Database! 🙏
+## Getting Help
+
+- **GitHub Issues:** For bug reports and feature requests
+- **Discussions:** For questions and community support
+- **Email:** For security-related issues (please report privately)
+
+Thank you for contributing to ManifoldDB!

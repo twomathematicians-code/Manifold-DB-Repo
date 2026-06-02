@@ -1,113 +1,66 @@
 [build-system]
-requires = ["setuptools>=68.0", "wheel", "setuptools-scm"]
-build-backend = "setuptools.build_meta"
+requires = [
+    "setuptools>=64",
+    "wheel",
+    "torch>=1.12",
+]
+build-backend = "setuptools.backends._legacy:_Backend"
 
 [project]
-name = "manifold-db"
+name = "manifolddb"
 version = "0.1.0"
-description = "A geometric inference engine for data on Riemannian manifolds"
+description = "Riemannian geometric inference engine with geodesic solvers and manifold-aware data structures"
 readme = "README.md"
-license = {text = "MIT"}
-requires-python = ">=3.10"
-authors = [{name = "Manifold DB Contributors"}]
-keywords = ["manifold", "database", "riemannian", "geodesic", "differential-geometry", "machine-learning"]
+license = { text = "MIT" }
+requires-python = ">=3.9"
+authors = [
+    { name = "ManifoldDB Contributors" },
+]
+keywords = [
+    "manifold",
+    "riemannian",
+    "geodesic",
+    "metric-tensor",
+    "atlas",
+    "geometry",
+    "machine-learning",
+]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Science/Research",
-    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: C++",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering",
+    "Topic :: Scientific/Engineering :: Mathematics",
 ]
+
 dependencies = [
-    "numpy>=1.24",
-    "scipy>=1.10",
-    "scikit-learn>=1.2",
-    "torch>=2.0",
-    "networkx>=3.0",
-    "fastapi>=0.100",
-    "uvicorn[standard]>=0.22",
-    "typer>=0.9",
-    "rich>=13.0",
-    "pyyaml>=6.0",
-    "aiosqlite>=0.19",
-    "pydantic>=2.0",
+    "torch>=1.12",
+    "numpy>=1.21",
+    "scikit-learn>=1.0",
 ]
 
 [project.optional-dependencies]
+cuda = ["torch>=1.12"]
 dev = [
     "pytest>=7.0",
-    "pytest-cov>=4.0",
-    "pytest-benchmark>=4.0",
-    "pytest-asyncio>=0.21",
     "mypy>=1.0",
     "ruff>=0.1",
-    "black>=23.0",
-    "isort>=5.0",
-    "pre-commit>=3.0",
 ]
-docs = [
-    "mkdocs>=1.4",
-    "mkdocs-material>=9.0",
-    "mkdocstrings[python]>=0.23",
-]
-benchmark = [
-    "pytest-benchmark>=4.0",
-    "memory-profiler>=0.60",
-    "line-profiler>=4.0",
-]
-all = ["manifold-db[dev,docs,benchmark]"]
-
-[project.scripts]
-manifold-db = "manifold_db.cli.main:app"
 
 [project.urls]
-Homepage = "https://github.com/manifold-db/manifold-db"
-Documentation = "https://manifold-db.readthedocs.io"
-Repository = "https://github.com/manifold-db/manifold-db"
+Homepage = "https://github.com/manifolddb/manifolddb"
+Repository = "https://github.com/manifolddb/manifolddb"
+Issues = "https://github.com/manifolddb/manifolddb/issues"
+
+[tool.setuptools]
+package-dir = { "" = "python" }
 
 [tool.setuptools.packages.find]
-include = ["manifold_db*"]
-
-[tool.pytest.ini_options]
-testpaths = ["tests"]
-addopts = "-v --tb=short"
-markers = [
-    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
-    "gpu: marks tests requiring GPU",
-    "benchmark: marks performance benchmarks",
-]
-
-[tool.ruff]
-line-length = 100
-target-version = "py310"
-
-[tool.ruff.lint]
-select = ["E", "F", "I", "N", "W", "UP"]
-
-[tool.ruff.lint.per-file-ignores]
-"manifold_db/atlas/atlas_builder.py" = ["N"]
-"manifold_db/atlas/transition_map.py" = ["N"]
-"manifold_db/connection/parallel_transport.py" = ["N"]
-"manifold_db/geodesic/distance.py" = ["N"]
-"manifold_db/geodesic/exponential_map.py" = ["N"]
-"manifold_db/geodesic/solver.py" = ["N"]
-"manifold_db/metric/metric_tensor.py" = ["N"]
-"manifold_db/tangent_index/index.py" = ["N"]
-"manifold_db/tangent_index/tangent_bundle.py" = ["N"]
-"manifold_db/tangent_index/tangent_space.py" = ["N"]
-"manifold_db/utils/manifold_learning.py" = ["N"]
-"manifold_db/utils/math_utils.py" = ["N"]
-
-[tool.mypy]
-python_version = "3.10"
-warn_return_any = true
-warn_unused_configs = true
-ignore_missing_imports = true
-
-[tool.coverage.run]
-source = ["manifold_db"]
-omit = ["tests/*", "manifold_db/api/*"]
-
-[tool.coverage.report]
-exclude_lines = ["pragma: no cover", "if TYPE_CHECKING:"]
+where = ["python"]
+exclude = ["tests*", "docs*", "examples*"]
